@@ -313,7 +313,7 @@ static int panic(lua_State *L)
 
 #ifdef LUAJIT_USE_SYSMALLOC
 
-#if LJ_64 && !LJ_GC64 && !defined(LUAJIT_USE_VALGRIND)
+#if 0 && LJ_64
 #error "Must use builtin allocator for 64 bit target"
 #endif
 
