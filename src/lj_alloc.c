@@ -225,6 +225,33 @@ static int CALL_MUNMAP(void *ptr, size_t size)
 #define LJ_ALLOC_MMAP_PROBE_LINEAR	5
 
 #define LJ_ALLOC_MMAP_PROBE_LOWER	((uintptr_t)0x4000)
+#elif defined(__DragonFly__)
+
+#define MMAP_REGION_START ((uintptr_t)0x1000)
+#define MMAP_REGION_END ((uintptr_t)0x80000000)
+
+static LJ_AINLINE void *CALL_MMAP(size_t size)
+{
+  int olderr = errno;
+  /* Hint for next allocation. Doesn't need to be thread-safe. */
+  static uintptr_t alloc_hint = MMAP_REGION_START;
+  int retry = 0;
+  for (;;) {
+    void *p = mmap((void *)alloc_hint, size, MMAP_PROT, MMAP_FLAGS, -1, 0);
+    if ((uintptr_t)p >= 0 && (uintptr_t)p + size < MMAP_REGION_END) {
+      alloc_hint = (uintptr_t)p + size;
+      errno = olderr;
+      return p;
+    }
+    if (p != CMFAIL) munmap(p, size);
+    if (retry) break;
+    retry = 1;
+    alloc_hint += 0x100000;
+  }
+  errno = olderr;
+  return CMFAIL;
+}
+
 
 /* No point in a giant ifdef mess. Just try to open /dev/urandom.
 ** It doesn't really matter if this fails, since we get some ASLR bits from
