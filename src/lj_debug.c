@@ -55,7 +55,8 @@ static BCPos debug_framepc(lua_State *L, GCfunc *fn, cTValue *nextframe)
   const BCIns *ins;
   GCproto *pt;
   BCPos pos;
-  lua_assert(fn->c.gct == ~LJ_TFUNC || fn->c.gct == ~LJ_TTHREAD);
+  lua_assert(fn->c.gctype == (int8_t)(uint8_t)LJ_TFUNC ||
+             fn->c.gctype == (int8_t)(uint8_t)LJ_TTHREAD);
   if (!isluafunc(fn)) {  /* Cannot derive a PC for non-Lua functions. */
     return NO_BCPOS;
   } else if (nextframe == NULL) {  /* Lua function on top. */
@@ -228,7 +229,7 @@ const char *lj_debug_uvnamev(cTValue *o, uint32_t idx, TValue **tvp)
     if (isluafunc(fn)) {
       GCproto *pt = funcproto(fn);
       if (idx < pt->sizeuv) {
-	*tvp = uvval(&gcref(fn->l.uvptr[idx])->uv);
+	*tvp = uvval(gco2uv(gcref(fn->l.uvptr[idx])));
 	return lj_debug_uvname(pt, idx);
       }
     } else {
@@ -442,7 +443,7 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     lua_assert(frame <= tvref(L->maxstack) &&
 	       (!nextframe || nextframe <= tvref(L->maxstack)));
     fn = frame_func(frame);
-    lua_assert(fn->c.gct == ~LJ_TFUNC);
+    lua_assert(fn->c.gctype == (int8_t)(uint8_t)LJ_TFUNC);
   }
   for (; *what; what++) {
     if (*what == 'S') {

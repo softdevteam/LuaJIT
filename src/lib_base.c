@@ -116,8 +116,9 @@ LJLIB_NOREGUV LJLIB_ASM(ipairs_aux)	LJLIB_REC(.)
 }
 
 LJLIB_PUSH(lastcl)
-LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
+LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 2)
 {
+  LJ_STATIC_ASSERT(MM_ipairs == MM_pairs + 2);
   return ffh_pairs(L, MM_ipairs);
 }
 
@@ -175,7 +176,7 @@ LJLIB_CF(setfenv)
   if (!isluafunc(fn))
     lj_err_caller(L, LJ_ERR_SETFENV);
   setgcref(fn->l.env, obj2gco(t));
-  lj_gc_objbarrier(L, obj2gco(fn), t);
+  lj_gc_objbarrier(L, fn, t, LJ_TTAB);
   setfuncV(L, L->top++, fn);
   return 1;
 }
@@ -351,7 +352,7 @@ static int load_aux(lua_State *L, int status, int envarg)
       GCfunc *fn = funcV(L->top-1);
       GCtab *t = tabV(L->base+envarg-1);
       setgcref(fn->c.env, obj2gco(t));
-      lj_gc_objbarrier(L, fn, t);
+      lj_gc_objbarrier(L, fn, t, LJ_TTAB);
     }
     return 1;
   } else {
