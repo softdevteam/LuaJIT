@@ -49,4 +49,10 @@ typedef struct VMEventData_ProtoBL {
   unsigned int pc;
 } VMEventData_ProtoBL;
 
+typedef struct VMEventData_LoadString {
+  struct GCstr *name;
+  const char *code;
+  size_t codesize;
+} VMEventData_LoadString;
+
 #endif
