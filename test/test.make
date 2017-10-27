@@ -52,6 +52,7 @@ all test:: $(TEST_TARGETS)
 #Builds the binaries if they don't exist first
 %.test: $$* 
 	./builds/$*/luajit testsuite/test/test.lua
+	(cd ../src && ../test/builds/$*/luajit jitlog/test.lua)
 
 %.clean:
 	rm -f ./builds/$*/luajit
