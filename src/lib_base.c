@@ -35,6 +35,7 @@
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_lib.h"
+#include "lj_vmevent.h"
 
 /* -- Base library: checks ------------------------------------------------ */
 
@@ -398,6 +399,13 @@ LJLIB_CF(load)
   if (L->base < L->top && (tvisstr(L->base) || tvisnumber(L->base))) {
     GCstr *s = lj_lib_checkstr(L, 1);
     lua_settop(L, 4);  /* Ensure env arg exists. */
+
+    lj_vmevent_callback_(L, VMEVENT_LOADSTRING, 
+      VMEventData_LoadString eventdata;
+      eventdata.name = name ? name : s;
+      eventdata.codesize = s->len;
+      eventdata.code = strdata(s);
+    );
     status = luaL_loadbufferx(L, strdata(s), s->len, strdata(name ? name : s),
 			      mode ? strdata(mode) : NULL);
   } else {

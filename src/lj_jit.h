@@ -8,6 +8,7 @@
 
 #include "lj_obj.h"
 #include "lj_ir.h"
+#include "vmevent.h"
 
 /* JIT engine flags. */
 #define JIT_F_ON		0x00000001
@@ -480,6 +481,9 @@ typedef struct jit_State {
   MCode *mcbot;		/* Bottom of current mcode area. */
   size_t szmcarea;	/* Size of current mcode area. */
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
+
+  luaJIT_vmevent_callback vmevent_cb; /* User set VM event callback. */
+  void *vmevent_data;   /* VM event callback data. */
 
   TValue errinfo;	/* Additional info element for trace errors. */
 
