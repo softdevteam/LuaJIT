@@ -49,8 +49,8 @@ typedef enum {
     } \
   }
 #define lj_vmevent_send_(L, ev, args, post) \
-  if(L2J(L)->vmevent_cb != NULL){\
-    L2J(L)->vmevent_cb(L2J(L)->vmevent_data, L, VMEVENT_##ev, 0);\
+  if(G(L)->vmevent_cb != NULL){\
+    G(L)->vmevent_cb(G(L)->vmevent_data, L, VMEVENT_##ev, 0);\
   }\
   if (G(L)->vmevmask & VMEVENT_MASK(LJ_VMEVENT_##ev)) { \
     ptrdiff_t argbase = lj_vmevent_prepare(L, LJ_VMEVENT_##ev); \
@@ -62,29 +62,29 @@ typedef enum {
   }
 
 #define lj_vmevent_callback(L, ev, args) \
-  if(L2J(L)->vmevent_cb != NULL){\
-    L2J(L)->vmevent_cb(L2J(L)->vmevent_data, L, ev, args);\
+  if(G(L)->vmevent_cb != NULL){\
+    G(L)->vmevent_cb(G(L)->vmevent_data, L, ev, args);\
   }
 
 /* Special version where the event data struct declared in the macro. Avoids
-** the need for a L2J(L)->vmevent_cb != NULL check outside the macro and cleanly disables
+** the need for a G(L)->vmevent_cb != NULL check outside the macro and cleanly disables
 ** when VM events are compiled out.
 */
 #define lj_vmevent_callback_(L, ev, build_eventdata) \
-  if(L2J(L)->vmevent_cb != NULL){\
+  if(G(L)->vmevent_cb != NULL){\
     build_eventdata \
-    L2J(L)->vmevent_cb(L2J(L)->vmevent_data, L, ev, &eventdata);\
+    G(L)->vmevent_cb(G(L)->vmevent_data, L, ev, &eventdata);\
   }
 
 #define lj_vmevent_send2(L, ev, callbackarg, args) \
-  if(L2J(L)->vmevent_cb != NULL){\
-    L2J(L)->vmevent_cb(L2J(L)->vmevent_data, L, VMEVENT_##ev, callbackarg);\
+  if(G(L)->vmevent_cb != NULL){\
+    G(L)->vmevent_cb(G(L)->vmevent_data, L, VMEVENT_##ev, callbackarg);\
   }\
   lj_vmevent_send(L, ev, args) 
 
 #define lj_vmevent_send_trace(L, subevent, callbackarg, args) \
-  if(L2J(L)->vmevent_cb != NULL){\
-    L2J(L)->vmevent_cb(L2J(L)->vmevent_data, L, VMEVENT_TRACE_##subevent, callbackarg);\
+  if(G(L)->vmevent_cb != NULL){\
+    G(L)->vmevent_cb(G(L)->vmevent_data, L, VMEVENT_TRACE_##subevent, callbackarg);\
   }\
   lj_vmevent_send(L, TRACE, args)
 
