@@ -12,7 +12,7 @@
 
 typedef struct VMPrintContext {
   VMPrintUserContext user;
-  jit_State *J;
+  global_State *G;
   SBuf sb;
   GCfunc *startfunc;
   GCproto *lastpt;
@@ -48,9 +48,10 @@ static void vmevent_log(VMPrintContext *context, const char *format, ...)
 
 }
 
+#if LJ_HASJIT
 static GCproto* getcurlualoc(VMPrintContext *context, uint32_t *pc)
 {
-  jit_State *J = context->J;
+  jit_State *J = G2J(context->G);
   GCproto *pt = NULL;
 
   if (J->pt) {
@@ -217,6 +218,7 @@ static void vmevent_traceflush(VMPrintContext *context, jit_State *J, FlushReaso
 {
   vmevent_log(context, "TRACEFLUSH: reason '%s',  mcode total %d\n", getflushreason(reason), (uint32_t)J->szallmcarea);
 }
+#endif
 
 static const char *getgcsname(int gcs)
 {
@@ -244,8 +246,9 @@ static void vmevent_gcstate(VMPrintContext *context, jit_State *J, int newstate)
   if (context->user.filter & EVENT_CLASS_GC) {
     return;
   }
+  global_State *g = context->G;
   vmevent_log(context, "GCSTATE: %s, totalmem %llukb, strings %d\n", getgcsname(newstate), 
-              (long long int)(J2G(J)->gc.total/1024), J2G(J)->strnum);
+              (long long int)(g->gc.total/1024), g->strnum);
 }
 
 static void vmevent_protoloaded(VMPrintContext *context, jit_State *J, GCproto *pt)
@@ -262,9 +265,13 @@ static void vmevent_callback(void *contextptr, lua_State *L, int eventid, void *
 {
   VMEvent2 event = (VMEvent2)eventid;
   VMPrintContext *context = contextptr;
+#if LJ_HASJIT
   jit_State *J = L2J(L);
-
+#else
+  jit_State *J = NULL;
+#endif
   switch (event) {
+    #if LJ_HASJIT
     case VMEVENT_TRACE_START:
       vmevent_tracestart(context, J, (GCtrace*)eventdata);
       break;
@@ -280,14 +287,16 @@ static void vmevent_callback(void *contextptr, lua_State *L, int eventid, void *
     case VMEVENT_TRACE_EXIT:
       vmevent_exit(context, J, (VMEventData_TExit*)eventdata);
       break;
-    case VMEVENT_BC:
-      vmevent_protoloaded(context, J, (GCproto*)eventdata);
-      break;
+
     case VMEVENT_PROTO_BLACKLISTED:
       vmevent_protobl(context, J, (VMEventData_ProtoBL*)eventdata);
       break;
     case VMEVENT_TRACE_FLUSH:
       vmevent_traceflush(context, J, (FlushReason)(uintptr_t)eventdata);
+      break;
+      #endif
+    case VMEVENT_BC:
+      vmevent_protoloaded(context, J, (GCproto*)eventdata);
       break;
     case VMEVENT_GC_STATECHANGE:
       vmevent_gcstate(context, J, (int)(uintptr_t)eventdata);
@@ -296,7 +305,7 @@ static void vmevent_callback(void *contextptr, lua_State *L, int eventid, void *
       free_context(context);
       break;
     case VMEVENT_STATE_CLOSING:
-      if (J->vmevent_cb == vmevent_callback) {
+      if (context->G->vmevent_cb == vmevent_callback) {
         luaJIT_vmevent_sethook(L, NULL, NULL);
       }
       free_context(context);
@@ -315,7 +324,7 @@ LUA_API VMPrintUserContext* vmevent_printer_start(lua_State *L)
 {
   VMPrintContext *context = malloc(sizeof(VMPrintContext));
   memset(context, 0 , sizeof(VMPrintContext));
-  context->J = L2J(L);
+  context->G = G(L);
   lj_buf_init(L, &context->sb);
   context->user.output = &default_ouput;
   luaJIT_vmevent_sethook(L, vmevent_callback, context);
@@ -324,14 +333,14 @@ LUA_API VMPrintUserContext* vmevent_printer_start(lua_State *L)
 
 static void free_context(VMPrintContext *context)
 {
-  lj_buf_free(J2G(context->J), &context->sb);
+  lj_buf_free(context->G, &context->sb);
   free(context);
 }
 
 LUA_API void vmevent_printer_close(VMPrintUserContext *usrcontext)
 {
   VMPrintContext *context = (VMPrintContext *)(((char *)usrcontext) - offsetof(VMPrintContext, user));
-  lua_State *L = &J2GG(context->J)->L;
+  lua_State *L = mainthread(context->G);
 
   void* current_context = NULL;
   luaJIT_vmevent_callback cb = luaJIT_vmevent_gethook(L, (void**)&current_context);

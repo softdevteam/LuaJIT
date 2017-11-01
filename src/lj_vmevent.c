@@ -60,19 +60,19 @@ void lj_vmevent_call(lua_State *L, ptrdiff_t argbase)
 LUA_API int luaJIT_vmevent_sethook(lua_State *L, luaJIT_vmevent_callback cb, void *data)
 {
   if (cb) {
-    L2J(L)->vmevent_cb = cb;
-    L2J(L)->vmevent_data = data;
+    G(L)->vmevent_cb = cb;
+    G(L)->vmevent_data = data;
   } else {
     lua_assert(data == NULL);
-    L2J(L)->vmevent_cb = NULL;
-    L2J(L)->vmevent_data = NULL;
+    G(L)->vmevent_cb = NULL;
+    G(L)->vmevent_data = NULL;
   }
   return 1;
 }
 
 LUA_API luaJIT_vmevent_callback luaJIT_vmevent_gethook(lua_State *L, void **data)
 {
-  *data = L2J(L)->vmevent_data;
-  return L2J(L)->vmevent_cb;
+  *data = G(L)->vmevent_data;
+  return G(L)->vmevent_cb;
 }
 
