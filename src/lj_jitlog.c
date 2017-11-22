@@ -1,0 +1,190 @@
+#define LUA_CORE
+
+#include "lj_jit.h"
+#include "lj_vm.h"
+#include "lj_lib.h"
+#include "lj_trace.h"
+#include "lj_tab.h"
+#include "lj_gc.h"
+#include "lj_buf.h"
+#include "lj_vmevent.h"
+#include "lj_debug.h"
+#include "luajit.h"
+#include "lauxlib.h"
+
+#include "lj_jitlog_def.h"
+#include "lj_jitlog_writers.h"
+#include "jitlog.h"
+
+
+typedef struct JITLogState {
+  SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
+  JITLogUserContext user;
+  global_State *g;
+} JITLogState;
+
+#define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
+#define ctx2usr(context)  (&(context)->user)
+
+static void free_context(JITLogState *context);
+
+static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
+{
+  VMEvent2 event = (VMEvent2)eventid;
+  JITLogState *context = contextptr;
+
+  switch (event) {
+    case VMEVENT_DETACH:
+      free_context(context);
+      break;
+    case VMEVENT_STATE_CLOSING:
+      if (G(L)->vmevent_cb == jitlog_callback) {
+        luaJIT_vmevent_sethook(L, NULL, NULL);
+      }
+      free_context(context);
+      break;
+    default:
+      break;
+  }
+}
+
+#if LJ_TARGET_X86ORX64
+
+static int getcpumodel(char *model)
+{
+  lj_vm_cpuid(0x80000002u, (uint32_t*)(model));
+  lj_vm_cpuid(0x80000003u, (uint32_t*)(model + 16));
+  lj_vm_cpuid(0x80000004u, (uint32_t*)(model + 32));
+  return (int)strnlen((char*)model, 12 * 4);
+}
+
+#else
+
+static int getcpumodel(char *model)
+{
+  strcpy(model, "unknown");
+  return (int)strlen("unknown");
+}
+
+#endif
+
+static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
+{
+  const char** pos = list;
+  int count = 0;
+  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
+    const char *s = *pos;
+    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
+  }
+  return count;
+}
+
+static void write_header(JITLogState *context)
+{
+  lua_State *L = mainthread(context->g);
+  char cpumodel[64] = {0};
+  int model_length = getcpumodel(cpumodel);
+  SBuf sb;
+  lj_buf_init(L, &sb);
+  bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
+  log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
+  lj_buf_free(context->g, &sb);
+}
+
+static int jitlog_isrunning(lua_State *L)
+{
+  void* current_context = NULL;
+  luaJIT_vmevent_callback cb = luaJIT_vmevent_gethook(L, (void**)&current_context);
+  return cb == jitlog_callback;
+}
+
+/* -- JITLog public API ---------------------------------------------------- */
+
+LUA_API JITLogUserContext* jitlog_start(lua_State *L)
+{
+  JITLogState *context ;
+  lua_assert(!jitlog_isrunning(L));
+
+  context = malloc(sizeof(JITLogState));
+  memset(context, 0 , sizeof(JITLogState));
+  context->g = G(L);
+
+  MSize total = G(L)->gc.total;
+  SBuf *sb = &context->eventbuf;
+  lj_buf_init(L, sb);
+  lj_buf_more(sb, 1024*1024*100);
+  /* 
+  ** Our Buffer size counts towards the gc heap size. This is an ugly hack to try and 
+  ** keep the GC running at the same rate with the jitlog running by excluding our buffer
+  ** from the gcheap size.
+  */
+  G(L)->gc.total = total;
+  luaJIT_vmevent_sethook(L, jitlog_callback, context);
+  write_header(context);
+
+  return &context->user;
+}
+
+static void free_context(JITLogState *context)
+{
+  global_State *g = context->g;
+  const char *path = getenv("JITLOG_PATH");
+  if (path != NULL) {
+    jitlog_save(ctx2usr(context), path);
+  }
+
+  g->gc.total += sbufsz(&context->eventbuf);
+  lj_buf_free(g, &context->eventbuf);
+  free(context);
+}
+
+static void jitlog_shutdown(JITLogState *context)
+{
+  lua_State *L = mainthread(context->g);
+  void* current_context = NULL;
+  luaJIT_vmevent_callback cb = luaJIT_vmevent_gethook(L, (void**)&current_context);
+  if (cb == jitlog_callback) {
+    lua_assert(current_context == context);
+    luaJIT_vmevent_sethook(L, NULL, NULL);
+  }
+
+  free_context(context);
+}
+
+LUA_API void jitlog_close(JITLogUserContext *usrcontext)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  jitlog_shutdown(context);
+}
+
+LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  lj_buf_reset(&context->eventbuf);
+  write_header(context);
+}
+
+LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  SBuf *sb = &context->eventbuf;
+  int result = 0;
+  lua_assert(path && path[0]);
+
+  FILE* dumpfile = fopen(path, "wb");
+  if (dumpfile == NULL) {
+    return -errno;
+  }
+
+  size_t written = fwrite(sbufB(sb), 1, sbuflen(sb), dumpfile);
+  if (written != sbuflen(sb) && ferror(dumpfile)) {
+    result = -errno;
+  } else {
+    int status = fflush(dumpfile);
+    if (status != 0 && ferror(dumpfile)) {
+      result = -errno;
+    }
+  }
+  fclose(dumpfile);
+  return result;
+}

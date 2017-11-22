@@ -1,4 +1,5 @@
 local format = string.format
+local tinsert = table.insert
 
 local builtin_types = {
   char = {size = 1, signed = true, printf = "%i", c = "char",  argtype = "char"},
@@ -343,7 +344,411 @@ function parser:complete()
   return data
 end
 
+local generator = {}
+
+local function joinlist_format(list, fmt, prefix, suffix, addmax)
+  prefix = prefix or ""
+  suffix = suffix or ""
+  local t = {}
+  for i, name in ipairs(list) do
+    t[i] = format(fmt, name)
+  end
+  if addmax then
+    table.insert(t, format(fmt, "MAX"))
+  end
+  return prefix .. table.concat(t, suffix .. prefix) .. suffix
+end
+
+local unescapes = {
+  n = '\n',
+  s = ' ',
+  t = '\t',
+}
+
+local function unescape(s)
+  return string.gsub(s, "\\(%a)", function(key)
+    local result = unescapes[key]
+    assert(result, "unknown escape")
+    return result
+  end)
+end
+
+function generator:buildtemplate(tmpl, values)
+  return (string.gsub(tmpl, "{{(.-)}}", function(key)
+    local name, fmt = string.match(key, "%s*(.-)%s*:(.+)")
+    if name then
+      key = name
+      fmt = unescape(fmt)
+    end
+    
+    local value = values[key]
+
+    if value == nil then
+      error("missing value for template key '"..key.."'")
+    end
+    
+    if fmt then
+      if type(value) == "table" then
+        value = joinlist_format(value, fmt)
+      else
+        value = format(fmt, value)
+      end
+    end
+    return value
+  end))
+end
+
+function generator:write(s)
+  self.outputfile:write(s)
+end
+
+function generator:writef(s, ...)
+  assert(type(s) == "string" and s ~= "")
+  self.outputfile:write(format(s, ...))
+end
+
+function generator:writetemplate(name, ...)  
+  local template = self.templates[name]
+  local result
+  if not template then
+    error("Missing template "..name)
+  end
+  if type(template) == "string" then
+    assert(template ~= "")
+    result = self:buildtemplate(template, ...)
+  else
+    result = template(...)
+  end
+  
+  self:write(result)
+end
+
+function generator:mkfield(f)
+  local ret
+  
+  local comment_line = self.templates.struct_comment or self.templates.comment_line
+
+  if f.type == "bitfield" then
+    ret = format("\n/*  %s: %d;*/", f.name, f.bitsize)
+  else
+    local type = self.types[f.type]
+    local langtype = type.c or f.type
+
+    if f.vlen then
+      langtype = type.element_type or langtype
+      ret = "\n"..format(comment_line, format("%s %s[%s];", langtype, f.name, f.buflen))
+    elseif f.bitstorage then
+      ret = "\n"..format(comment_line, format("%s %s:%d", langtype, f.name, f.bitsize))
+    else
+      ret = format(self.templates.structfield, langtype, f.name)
+    end
+  end
+  return ret
+end
+
+function generator:write_struct(name, def)
+  local fieldstr = ""
+  local fieldgetters = {}
+
+  if def.base then
+    local base = self.msglookup[def.base]
+    assert(base, "Missing base message "..def.base)
+    for _, f in ipairs(base.fields) do
+      fieldstr = fieldstr..self:mkfield(f)
+    end
+  end
+
+  for _, f in ipairs(def.fields) do
+    fieldstr = fieldstr..self:mkfield(f)
+
+    if self:needs_accessor(def, f) then
+      local voffset
+      if f.vindex and f.vindex > 1 then
+        voffset = {}
+        for i = 1, f.vindex-1 do
+          local vfield = def.vlen_fields[i]
+          local buflen = def.fieldlookup[vfield.buflen]
+          voffset[i] = format("%s*%d", self:fmt_fieldget(def, buflen), vfield.element_size)
+        end      
+        voffset = table.concat(voffset, " + ")
+      end
+    
+      local getter = self:fmt_accessor_def(def, f, voffset)   
+      assert(getter)
+      table.insert(fieldgetters, getter)
+    end
+  end
+
+  self:writetemplate("struct", {name = name, fields = fieldstr, bitfields = fieldgetters})
+  return #fieldgetters > 0 and fieldgetters
+end
+
+local function logfunc_getfieldvar(msgdef, f)
+  local field = f.name
+  if f.value_name then
+    field = f.value_name
+  end
+  
+  return field
+end
+
+function generator:write_vlenfield(msgdef, f, vtotal, vwrite)
+  local tmpldata = {
+    name = logfunc_getfieldvar(msgdef, f), 
+    sizename = f.name.."_size",
+  }
+  
+  local vtype = self.types[f.type]
+  tmpldata.element_size = vtype.element_size or vtype.size
+  
+  -- Check that the length is not an implicit arg after the field
+  if f.buflen then
+    tmpldata.sizename = f.buflen
+    local szfield = msgdef.fieldlookup[f.buflen]
+    if szfield then
+      tmpldata.sizename = logfunc_getfieldvar(msgdef, szfield)
+    end
+  end
+
+  if f.type == "string" and (f.implicitlen or msgdef.use_msgsize == f.name) then
+    tinsert(vtotal, self:buildtemplate("MSize {{sizename}} = (MSize)strlen({{name}});", tmpldata))
+  end
+  tinsert(vtotal, self:buildtemplate("vtotal += {{sizename}} * {{element_size}};", tmpldata))
+  tinsert(vwrite, self:buildtemplate("lj_buf_putmem(sb, {{name}}, (MSize)({{sizename}} * {{element_size}}));", tmpldata))
+end
+
+local funcdef_fixed = [[
+LJ_STATIC_ASSERT(sizeof(MSG_{{name}}) == {{msgsize}});
+
+static LJ_AINLINE void log_{{name}}({{args}})
+{
+  SBuf *sb = (SBuf *)g->vmevent_data;
+  MSG_{{name}} *msg = (MSG_{{name}} *)sbufP(sb);
+{{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
+  lj_buf_more(sb, {{minbuffspace}});
+}
+
+]]
+
+local funcdef_vsize = [[
+LJ_STATIC_ASSERT(sizeof(MSG_{{name}}) == {{msgsize}});
+
+static LJ_AINLINE void log_{{name}}({{args}})
+{
+  SBuf *sb = (SBuf *)g->vmevent_data;
+  MSG_{{name}} *msg;
+{{vtotal:  %s\n}}  msg = (MSG_{{name}} *)lj_buf_more(sb, (MSize)(vtotal + {{minbuffspace}}));
+{{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
+{{vwrite:  %s\n}}
+}
+
+]]
+
+generator.custom_field_writers = {
+  timestamp_highres = "__rdtsc();",
+  timestamp = "__rdtsc();",
+  gettime = "__rdtsc();",
+  setref = function(self, msgdef, f, valuestr)
+    local setref = (f.type == "MRef" and "setmref") or "setgcrefp"
+    local type = self.types[f.type]
+    if f.ptrarg or type.ptrarg or f.struct_addr then
+      return format("%s(msg->%s, %s);", setref, f.name, valuestr)
+    else
+      -- Just do an assignment for raw GCref values
+      return format("msg->%s = %s;", f.name, valuestr) 
+    end
+  end,
+  msghdr = function(self, msgdef, f) 
+    return format("msg->header = MSGTYPE_%s;", msgdef.name) 
+  end,
+  vtotal = "(uint32_t)vtotal;",
+  widenptr = function(self, msgdef, f, valuestr) 
+    return format("msg->%s = (uint64_t)(uintptr_t)(%s);", f.name, valuestr)
+  end,
+}
+
+function generator:write_logfunc(def)
+  local fields = {}
+  local vtotal, vwrite = {}, {}
+  if def.vsize then
+    tinsert(vtotal, format("size_t vtotal = sizeof(MSG_%s);", def.name))
+  end
+  
+  local args = {"global_State *g"} 
+  
+  for _, f in ipairs(def.fields) do
+    local typename = f.type
+    local argtype
+    local typedef = self.types[typename]
+
+    if typename == "bitfield" then
+      typename = "uint32_t"
+    elseif typename == "string" then
+      argtype = self.types[typename].argtype
+    else
+      typename = typedef.c
+      argtype = f.argtype or typedef.argtype
+    end
+
+    --Don't generate a function arg for fields that have implict values
+    if not typedef.noarg and not f.noarg and not f.lengthof then
+      assert(not f.value_name)
+      
+      table.insert(args, format("%s %s", (argtype or typename), f.name))
+      if f.buflen then
+        local length = def.fieldlookup[f.buflen]
+        if not length.noarg then
+          table.insert(args, "uint32_t " .. length.name)
+        end
+      end
+    end
+
+    local field_assignment = f.name
+    local writer = f.writer or typedef.writer
+
+    if f.value_name then
+      field_assignment = f.value_name
+    end
+    
+    if f.bitofs then
+      field_assignment = format("(%s << %d)", field_assignment, f.bitofs)
+    elseif not writer and argtype and typedef.size and typedef.size < 4 then
+      -- truncate the value down to the fields size
+      field_assignment = format("(%s)%s", typename, field_assignment)
+    end
+
+    if writer then
+      local writerimpl = self.custom_field_writers[writer]
+      assert(writerimpl, "missing writer")
+      
+      if type(writerimpl) == "function" then
+        field_assignment = writerimpl(self, def, f, field_assignment)
+      else
+        field_assignment = format("msg->%s = %s", f.name, writerimpl)
+      end
+    elseif f.vlen then
+      self:write_vlenfield(def, f, vtotal, vwrite)
+      field_assignment = ""
+    elseif f.bitstorage then
+      -- Bit field is is stuffed in another field
+      field_assignment = format("msg->%s |= %s;", f.bitstorage, field_assignment)
+    else
+      field_assignment = format("msg->%s = %s;", f.name, field_assignment)
+    end
+    
+    if field_assignment ~= "" then
+      table.insert(fields, field_assignment)
+    end
+  end
+  
+  local minbuffspace = "128"
+  local template 
+
+  if #vtotal ~= 0 then
+    template = funcdef_vsize
+  else
+    template = funcdef_fixed
+  end
+  
+  args = table.concat(args, ", ")
+  self:write(self:buildtemplate(template, {name = def.name, args = args, fields = fields, vtotal = vtotal, vwrite = vwrite, minbuffspace = minbuffspace, msgsize = def.size}))
+end
+
+function generator:write_enum(name, names, prefix)
+  prefix = prefix and (prefix .. "_") or name
+
+  if self.outputlang ~= "c" then
+    prefix = ""
+  end
+  local entries = joinlist_format(names, prefix..self.templates.enumline, "  ", "", true)
+  self:writetemplate("enum", {name = name, list = entries})
+end
+
+function generator:write_namelist(name, names)
+  self:writetemplate("namelist", {name = name, list = names, count = #names})
+end
+
+function generator:write_msgsizes(dispatch_table)
+  local sizes = ""
+
+  for _, name in ipairs(self.sorted_msgnames) do
+    local size = self.msglookup[name].size
+    if self.msglookup[name].vsize then
+      if dispatch_table then
+        size = 0
+      else
+        size = -size
+      end
+    end
+    sizes = sizes .. format("  %d, %s\n", size, format(self.templates.comment_line, name))
+  end
+
+  local template
+  
+  if dispatch_table and self.templates.msgsize_dispatch then
+    template = "msgsize_dispatch"
+  else
+    template = "msgsizes"
+  end
+  
+  self:writetemplate(template, {list = sizes, count = #self.sorted_msgnames})
+end
+
+function generator:write_msgdefs()
+  for _, def in ipairs(self.msglist) do
+    self:write_struct(def.name, def)
+  end
+end
+
+function generator:write_cheader(options)
+  options = options or {}
+  self.outputfile = io.open("lj_jitlog_def.h", "w")
+  self:writefile(options)
+  self.outputfile:close()
+  
+  self.outputfile = io.open("lj_jitlog_writers.h", "w")
+  self:write_headerguard("timer_writers")
+  self:write([[#include "lj_jitlog_def.h"
+#if LJ_TARGET_LINUX || LJ_TARGET_OSX
+#include <x86intrin.h>
+#endif
+
+]])
+  for _, def in ipairs(self.msglist) do
+    self:write_logfunc(def)
+  end
+  self:write("#endif\n")
+  self.outputfile:close()
+end
+
 local lang_generator = {}
+
+local function writelang(lang, data, options)
+  options = options or {}
+  
+  local lgen = lang_generator[lang]
+  if not lgen then
+    lgen = require("jitlog."..lang.."_generator")
+    lang_generator[lang] = lgen
+  end
+  
+  local state = {}
+  table_copyfields(data, state, copyfields) 
+  setmetatable(state, {
+    __index = function(self, key) 
+      local v = lgen[key]
+      return (v ~= nil and v) or generator[key] 
+    end
+  })
+  
+  local filepath = options.filename or state.default_filename
+  state.outputfile = io.open(filepath, "w")
+  state:writefile(options)
+  state.outputfile:close()
+  return filepath
+end
+
+local c_generator = require("jitlog.c_generator")
 
 local api = {
   create_parser = function()
@@ -354,6 +759,20 @@ local api = {
     }
     t.data = t
     return setmetatable(t, {__index = parser})
+  end,
+
+  writelang = writelang,
+  write_c = function(data, options)
+    local t = {}
+    table_copyfields(data, t, copyfields)
+    setmetatable(t, {
+      __index = function(self, key) 
+        local v = c_generator[key]
+        return (v ~= nil and v) or generator[key] 
+      end
+    })
+  
+    t:write_cheader(options)
   end,
 }
 
