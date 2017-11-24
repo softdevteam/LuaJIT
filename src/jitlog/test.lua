@@ -3,6 +3,11 @@ local format = string.format
 local msgdef = require"jitlog.messages"
 local apigen = require"jitlog.generator"
 
+dofile("jitlog/build.lua")
+local readerlib = require("jitlog.reader")
+assert(readerlib.makereader())
+local jitlog = require("jitlog")
+
 local parser = apigen.create_parser()
 parser:parse_msglist(msgdef)
 local msginfo_vm = parser:complete()
@@ -120,6 +125,13 @@ function tests.field_offsets()
         if f.offset >= msgsize then
           error(format("Field '%s' in message %s has a offset %d larger than message size of %d", name, msgname, f.offset, msgsize))
         end
+        local offset = ffi.offsetof(msgname, f.name)
+        if not offset  then
+          error(format("Field '%s' is missing in message %s", name, msgname))
+        end
+        if offset ~= f.offset then
+          error(format("Bad field offset for '%s' in message %s expected %d was %d", name, msgname, offset, f.offset))
+        end
       else
         if f.offset then
           error(format("Special field '%s' in message %s has a offset %d when it should have none", name, msgname, f.offset))
@@ -129,12 +141,34 @@ function tests.field_offsets()
   end
 end
 
+local function checkheader(header)
+  assert(header)
+  assert(header.os == jit.os)
+  assert(header.version > 0)
+end
+
+function tests.header()
+  jitlog.start()
+  jitlog.save("jitlog.bin")
+  local result = readerlib.parsefile("jitlog.bin")  
+  checkheader(result.header)
+end
+
+function tests.reset()
+  jitlog.start()
+  jitlog.reset()
+  jitlog.save("jitlog.bin")
+  local result = readerlib.parsefile("jitlog.bin")  
+  checkheader(result.header)
+end
+
 for name, test in pairs(tests) do
   io.stdout:write("Running: "..name.."\n")
   local success, err = pcall(test)
   if not success then
     io.stderr:write("  FAILED ".. err.."\n")
   end
+  pcall(jitlog.shutdown)
 end
 
 return
