@@ -220,6 +220,16 @@ static int jlib_shutdown(lua_State *L)
   return 0;
 }
 
+static int jlib_addmarker(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  size_t size = 0;
+  const char *label = luaL_checklstring(L, 1, &size);
+  int flags = luaL_optint(L, 2, 0);
+  log_stringmarker(context->g, flags, label);
+  return 0;
+}
+
 static int jlib_reset(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
@@ -243,6 +253,7 @@ static const luaL_Reg jitlog_lib[] = {
   {"shutdown", jlib_shutdown},
   {"reset", jlib_reset},
   {"save", jlib_save},
+  {"addmarker", jlib_addmarker},
   {NULL, NULL},
 };
 

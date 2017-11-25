@@ -8,6 +8,24 @@ local MsgType = logdef.MsgType
 local msgnames = MsgType.names
 local msgsizes = logdef.msgsizes
 
+local base_actions = {}
+
+function base_actions:stringmarker(buff)
+  local msg = ffi.cast("MSG_stringmarker*", buff)
+  local label = msg:get_label()
+  local flags = msg:get_flags()
+  local time = msg.time
+  local marker = {
+    label = label,
+    time = time,
+    eventid = self.eventid,
+    flags = flags,
+    type = "string"
+  }
+  self.markers[#self.markers + 1] = marker
+  self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
+end
+
 local logreader = {}
 
 function logreader:log(fmt, ...)
@@ -197,9 +215,11 @@ local mt = {__index = logreader}
 local function makereader()
   local t = {
     eventid = 0,
+    markers = {},
     verbose = false,
     logfilter = {
       --header = true,
+      --stringmarker = true,
     }
   }
   return setmetatable(t, mt)
