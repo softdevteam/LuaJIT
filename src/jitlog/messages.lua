@@ -22,6 +22,20 @@ local msgs = {
     "time : timestamp",
     use_msgsize = "label",
   },
+
+  {
+    name = "traceexit",
+    "isgcexit : bool",
+    "traceid : 14",
+    "exit : 9",
+  },
+
+  {
+    name = "traceexit_large",
+    "isgcexit : bool",
+    "traceid : u16",
+    "exit : u16",
+  },
 }
 
 return msgs

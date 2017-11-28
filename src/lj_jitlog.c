@@ -26,6 +26,19 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
+#if LJ_HASJIT
+
+static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
+{
+  jit_State *J = G2J(context->g);
+  if (J->parent < (1 << 14) && J->exitno < (1 << 10)) {
+    log_traceexit(context->g, exitState->gcexit, J->parent, J->exitno);
+  } else {
+    log_traceexit_large(context->g, exitState->gcexit, J->parent, J->exitno);
+  }
+}
+
+#endif
 static void free_context(JITLogState *context);
 
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
@@ -34,6 +47,11 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   JITLogState *context = contextptr;
 
   switch (event) {
+#if LJ_HASJIT
+    case VMEVENT_TRACE_EXIT:
+      jitlog_exit(context, (VMEventData_TExit*)eventdata);
+      break;
+#endif
     case VMEVENT_DETACH:
       free_context(context);
       break;
