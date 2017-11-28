@@ -38,6 +38,12 @@ static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
   }
 }
 
+static void jitlog_traceflush(JITLogState *context, FlushReason reason)
+{
+  jit_State *J = G2J(context->g);
+  log_alltraceflush(context->g, reason, J->param[JIT_P_maxtrace], J->param[JIT_P_maxmcode] << 10);
+}
+
 #endif
 static void free_context(JITLogState *context);
 
@@ -50,6 +56,9 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
 #if LJ_HASJIT
     case VMEVENT_TRACE_EXIT:
       jitlog_exit(context, (VMEventData_TExit*)eventdata);
+      break;
+    case VMEVENT_TRACE_FLUSH:
+      jitlog_traceflush(context, (FlushReason)(uintptr_t)eventdata);
       break;
 #endif
     case VMEVENT_DETACH:

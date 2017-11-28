@@ -224,6 +224,15 @@ function tests.tracexits()
   assert(result.exits > 4)
 end
 
+function tests.userflush()
+  jitlog.start()
+  jit.flush()
+  local result = parselog(jitlog.savetostring())
+  assert(#result.flushes == 1)
+  assert(result.flushes[1].reason == "user_requested")
+  assert(result.flushes[1].time > 0)
+end
+
 end
 
 local failed = false
