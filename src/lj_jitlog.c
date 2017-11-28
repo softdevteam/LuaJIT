@@ -45,6 +45,13 @@ static void jitlog_traceflush(JITLogState *context, FlushReason reason)
 }
 
 #endif
+
+static void jitlog_gcstate(JITLogState *context, int newstate)
+{
+  global_State *g = context->g;
+  log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
+}
+
 static void free_context(JITLogState *context);
 
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
@@ -61,6 +68,9 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
       jitlog_traceflush(context, (FlushReason)(uintptr_t)eventdata);
       break;
 #endif
+    case VMEVENT_GC_STATECHANGE:
+      jitlog_gcstate(context, (int)(uintptr_t)eventdata);
+      break;
     case VMEVENT_DETACH:
       free_context(context);
       break;
