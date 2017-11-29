@@ -25,6 +25,11 @@ typedef struct JITLogState {
   uint32_t strcount;
   GCtab* protos;
   uint32_t protocount;
+  GCfunc *startfunc;
+  GCproto *lastpt;
+  BCPos lastpc;
+  GCfunc *lastlua;
+  GCfunc *lastfunc;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -154,6 +159,70 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
 
 #if LJ_HASJIT
 
+static GCproto* getcurlualoc(JITLogState *context, uint32_t *pc)
+{
+  jit_State *J = G2J(context->g);
+  GCproto *pt = NULL;
+
+  if (J->pt) {
+    pt = J->pt;
+    *pc = proto_bcpos(pt, J->pc);
+  } else if (context->lastlua) {
+    pt = funcproto(context->lastlua);
+    lua_assert(context->lastpc < pt->sizebc);
+    *pc = context->lastpc;
+  }
+
+  return pt;
+}
+
+static void jitlog_tracestart(JITLogState *context, GCtrace *T)
+{ 
+  jit_State *J = G2J(context->g);
+  context->startfunc = J->fn;
+  context->lastfunc = context->lastlua = J->fn;
+  context->lastpc = proto_bcpos(J->pt, J->pc);
+}
+
+static void jitlog_tracestop(JITLogState *context, GCtrace *T)
+{
+  jit_State *J = G2J(context->g);
+  GCproto *startpt = &gcref(T->startpt)->pt;
+  BCPos stoppc;
+  GCproto *stoppt = getcurlualoc(context, &stoppc);
+  BCPos startpc = proto_bcpos(startpt, mref(T->startpc, const BCIns));
+  memorize_proto(context, startpt);
+  memorize_proto(context, stoppt);
+  log_trace(context->g, T, 0, T->traceno, J->parent, stoppt, stoppc, 0, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
+}
+
+static void jitlog_traceabort(JITLogState *context, GCtrace *T)
+{
+  jit_State *J = G2J(context->g);
+  GCproto *startpt = &gcref(T->startpt)->pt;
+  BCPos startpc = proto_bcpos(startpt, mref(T->startpc, const BCIns));
+  BCPos stoppc;
+  GCproto *stoppt = getcurlualoc(context, &stoppc);
+  int abortreason = tvisnumber(J->L->top-1) ? numberVint(J->L->top-1) : -1;
+  memorize_proto(context, startpt);
+  memorize_proto(context, stoppt);
+  log_trace(context->g, T, 1, T->traceno, J->parent, stoppt, stoppc, (uint16_t)abortreason, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
+}
+
+static void jitlog_tracebc(JITLogState *context)
+{
+  jit_State *J = G2J(context->g);
+  if (context->lastfunc != J->fn) {
+    context->lastfunc = J->fn;
+  }
+
+  if (J->pt) {
+    lua_assert(isluafunc(J->fn));
+    context->lastlua = J->fn;
+    context->lastpc = proto_bcpos(J->pt, J->pc);
+  }
+}
+
 static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
 {
   jit_State *J = G2J(context->g);
@@ -193,6 +262,18 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
 
   switch (event) {
 #if LJ_HASJIT
+    case VMEVENT_TRACE_START:
+      jitlog_tracestart(context, (GCtrace*)eventdata);
+      break;
+    case VMEVENT_RECORD:
+      jitlog_tracebc(context);
+      break;
+    case VMEVENT_TRACE_STOP:
+      jitlog_tracestop(context, (GCtrace*)eventdata);
+      break;
+    case VMEVENT_TRACE_ABORT:
+      jitlog_traceabort(context, (GCtrace*)eventdata);
+      break;
     case VMEVENT_TRACE_EXIT:
       jitlog_exit(context, (VMEventData_TExit*)eventdata);
       break;

@@ -72,6 +72,32 @@ function base_actions:protoloaded(msg)
   return address, proto
 end
 
+function base_actions:trace(msg)
+  local id = msg:get_id()
+  local aborted = msg:get_aborted()
+  local startpt = self.proto_lookup[addrtonum(msg.startpt)]
+  local stoppt = self.proto_lookup[addrtonum(msg.stoppt)]
+  local trace = {
+    eventid = self.eventid,
+    id = id,
+    parentid = msg.parentid,
+    startpt = startpt,
+    stoppt = stoppt,
+    link = msg.link,
+  }
+  local list
+  if aborted then
+    list = self.aborts
+    trace.abortcode = msg.abortcode
+    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s:%d\n stop= %s:%d", id, msg.abortcode, msg.parentid, startpt.chunk, startpt.firstline, stoppt.chunk, stoppt.firstline)
+  else
+    list = self.traces
+    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s:%d\n stop= %s:%d", id,  msg.parentid, startpt.chunk, startpt.firstline, stoppt.chunk, stoppt.firstline)
+  end
+  list[#list + 1] = trace
+  return trace
+end
+
 function base_actions:traceexit(msg)
   local id = msg:get_traceid()
   local exit = msg:get_exit()
@@ -430,6 +456,8 @@ local function makereader(mixins)
     protos = {},
     proto_lookup = {},
     flushes = {},
+    traces = {},
+    aborts = {},
     exits = 0,
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
     gccount = 0, -- number GC full cycles that have been seen in the log
