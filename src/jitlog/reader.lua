@@ -2,11 +2,17 @@ local ffi = require"ffi"
 require("table.new")
 local format = string.format
 local band = bit.band
+local rshift = bit.rshift
 
 local logdef = require("jitlog.reader_def")
 local MsgType = logdef.MsgType
 local msgnames = MsgType.names
 local msgsizes = logdef.msgsizes
+
+-- Just mask to the lower 48 bits that will fit in to a double
+local function addrtonum(address)
+  return (tonumber(bit.band(address, 0xffffffffffffULL)))
+end
 
 local base_actions = {}
 
@@ -24,6 +30,34 @@ function base_actions:stringmarker(msg)
   self.markers[#self.markers + 1] = marker
   self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
   return marker
+end
+
+function base_actions:gcstring(msg)
+  local string = msg:get_data()
+  local address = addrtonum(msg.address)
+  self.strings[address] = string
+  self:log_msg("gcstring", "GCstring: %s, %s", address, string)
+  return string, address
+end
+
+function base_actions:gcproto(msg)
+  local address = addrtonum(msg.address)
+  local chunk = self.strings[addrtonum(msg.chunkname)]
+  local proto = {
+    chunk = chunk, 
+    firstline = msg.firstline, 
+    numline = msg.numline,
+    bclen = msg.bclen,
+    bcaddr = addrtonum(msg.bcaddr),
+    address = address,
+  }
+  proto.hotslot = band(rshift(proto.bcaddr, 2), 64-1)
+  self.protos[#self.protos + 1] = proto
+  self.proto_lookup[address] = proto
+  -- msg:get_bc()
+  -- msg:get_lineinfo() 
+  self:log_msg("gcproto", "GCproto(%d): %s: %s, hotslot %d", address, proto.chunk, proto.firstline, proto.hotslot)
+  return proto
 end
 
 function base_actions:traceexit(msg)
@@ -380,6 +414,9 @@ local function makereader(mixins)
     eventid = 0,
     actions = {},
     markers = {},
+    strings = {},
+    protos = {},
+    proto_lookup = {},
     flushes = {},
     exits = 0,
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
