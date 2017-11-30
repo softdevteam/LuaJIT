@@ -21,10 +21,35 @@ typedef struct JITLogState {
   SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
   JITLogUserContext user;
   global_State *g;
+  GCtab *strings;
+  uint32_t strcount;
+  GCtab *protos;
+  uint32_t protocount;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
+
+static GCtab* create_pinnedtab(lua_State *L)
+{
+  GCtab *t = lj_tab_new(L, 0, 0);
+  TValue key;
+  setlightudV(&key, t);
+  settabV(L, lj_tab_set(L, tabV(registry(L)), &key), t);
+  lj_gc_anybarriert(L, tabV(registry(L)));
+  return t;
+}
+
+static GCtab* free_pinnedtab(lua_State *L, GCtab *t)
+{
+  TValue key;
+  TValue *slot;
+  setlightudV(&key, t);
+  slot = lj_tab_set(L, tabV(&G(L)->registrytv), &key);
+  lua_assert(tabV(slot) == t);
+  setnilV(slot);
+  return t;
+}
 
 static int bufwrite_strlist(SBuf *sb, const char *const *list, int limit)
 {
@@ -46,6 +71,107 @@ static void write_enumdef(JITLogState *context, const char *name, const char *co
   lua_assert(namecount == count);
   log_enumdef(g, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
   lj_buf_free(g, &sb);
+}
+
+static int memorize_gcref(lua_State *L,  GCtab* t, TValue* key, uint32_t *count) {
+  TValue *slot = lj_tab_set(L, t, key);
+  
+  if (tvisnil(slot) || !lj_obj_equal(key, slot+1)) {
+    int id = (*count)++;
+    setlightudV(slot, (void*)(uintptr_t)id);
+    return 1;
+  }
+  return 0;
+}
+
+static int memorize_string(JITLogState *context, GCstr *s)
+{
+  lua_State *L = mainthread(context->g);
+  TValue key;
+  setstrV(L, &key, s);
+
+  if (s->len > 256) {
+    /*TODO: don't keep around large strings */
+  }
+
+  if (memorize_gcref(L, context->strings, &key, &context->strcount)) {
+    log_gcstring(context->g, s, strdata(s));
+    return 1;
+  }
+  return 0;
+}
+
+static const uint8_t* collectvarinfo(GCproto* pt)
+{
+  const char *p = (const char *)proto_varinfo(pt);
+  if (p) {
+    BCPos lastpc = 0;
+    for (;;) {
+      const char *name = p;
+      uint32_t vn = *(const uint8_t *)p;
+      BCPos startpc, endpc;
+      if (vn < VARNAME__MAX) {
+        if (vn == VARNAME_END) break;  /* End of varinfo. */
+      } else {
+        name = p;
+        do { p++; } while (*(const uint8_t *)p);  /* Skip over variable name. */
+      }
+      p++;
+      lastpc = startpc = lastpc + lj_buf_ruleb128(&p);
+      endpc = startpc + lj_buf_ruleb128(&p);
+      /* TODO: save in to an easier to parse format */
+      UNUSED(lastpc);
+      UNUSED(endpc);
+
+        if (vn < VARNAME__MAX) {
+          #define VARNAMESTR(name, str)	str "\0"
+          name = VARNAMEDEF(VARNAMESTR);
+          #undef VARNAMESTR
+          if (--vn) while (*name++ || --vn);
+        }
+        //return name;
+    }
+  }
+  return (const uint8_t *)p;
+
+}
+
+static void memorize_proto(JITLogState *context, GCproto *pt)
+{
+  lua_State *L = mainthread(context->g);
+  TValue key;
+  int i;
+  memorize_string(context, strref(pt->chunkname));
+  setprotoV(L, &key, pt);
+  /* Only write each proto once to the jitlog */
+  if (!memorize_gcref(L, context->protos, &key, &context->protocount)) {
+    return;
+  }
+
+  uint8_t *lineinfo = mref(pt->lineinfo, uint8_t);
+  uint32_t linesize = 0;
+  if (mref(pt->lineinfo, void)) {
+    if (pt->numline < 256) {
+      linesize = pt->sizebc;
+    } else if (pt->numline < 65536) {
+      linesize = pt->sizebc * sizeof(uint16_t);
+    } else {
+      linesize = pt->sizebc * sizeof(uint32_t);
+    }
+  }
+
+  size_t vinfosz = collectvarinfo(pt)-proto_varinfo(pt);
+  lua_assert(vinfosz < 0xffffffff);
+
+  for(i = 0; i != pt->sizekgc; i++){
+    GCobj *o = proto_kgc(pt, -(i + 1));
+    /* We want the string constants to be able to tell what fields are being accessed by the bytecode */
+    if (o->gch.gct == ~LJ_TSTR) {
+      memorize_string(context, gco2str(o));
+    }
+  }
+
+  log_gcproto(context->g, pt, proto_bc(pt), proto_bc(pt), mref(pt->k, GCRef),  lineinfo, linesize, proto_varinfo(pt), (uint32_t)vinfosz);
 }
 
 #if LJ_HASJIT
@@ -158,6 +284,12 @@ static const char *const flushreason[] = {
   "set_immutableuv",
 };
 
+static const char *const bc_names[] = {
+  #define BCNAME(name, ma, mb, mc, mt)       #name,
+  BCDEF(BCNAME)
+  #undef BCNAME
+};
+
 #define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
 
 static void write_header(JITLogState *context)
@@ -173,6 +305,7 @@ static void write_header(JITLogState *context)
 
   write_enum(context, "gcstate", gcstates);
   write_enum(context, "flushreason", flushreason);
+  write_enum(context, "bc", bc_names);
 }
 
 static int jitlog_isrunning(lua_State *L)
@@ -194,6 +327,8 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context = malloc(sizeof(JITLogState));
   memset(context, 0 , sizeof(JITLogState));
   context->g = G(L);
+  context->strings = create_pinnedtab(L);
+  context->protos = create_pinnedtab(L);
 
   MSize total = G(L)->gc.total;
   SBuf *sb = &context->eventbuf;
@@ -235,6 +370,8 @@ static void jitlog_shutdown(JITLogState *context)
     luaJIT_vmevent_sethook(L, NULL, NULL);
   }
 
+  free_pinnedtab(L, context->strings);
+  free_pinnedtab(L, context->protos);
   free_context(context);
 }
 
@@ -247,6 +384,10 @@ LUA_API void jitlog_close(JITLogUserContext *usrcontext)
 LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
 {
   JITLogState *context = usr2ctx(usrcontext);
+  context->strcount = 0;
+  context->protocount = 0;
+  lj_tab_clear(context->strings);
+  lj_tab_clear(context->protos);
   lj_buf_reset(&context->eventbuf);
   write_header(context);
 }

@@ -1,7 +1,9 @@
 local ffi = require"ffi"
 require("table.new")
 local format = string.format
+local tinsert = table.insert
 local band = bit.band
+local rshift = bit.rshift
 
 local logdef = require("jitlog.reader_def")
 local MsgType = logdef.MsgType
@@ -31,6 +33,140 @@ local function make_enum(names)
   return t
 end
 
+ffi.cdef[[
+typedef struct array_u8 {
+  int length;
+  uint8_t array[?];
+} array_u8;
+
+typedef struct array_u16 {
+  int length;
+  uint16_t array[?];
+} array_u16;
+
+typedef struct array_u32 {
+  int length;
+  uint32_t array[?];
+} array_u32;
+
+typedef struct protobc {
+  int length;
+  int32_t bc[?];
+} protobc;
+
+typedef struct array_u64 {
+  int length;
+  uint64_t array[?];
+} array_u64;
+]]
+
+local function array_index(self, index)
+  assert(index >= 0 and index < self.length)
+  return self.array[index]
+end
+
+local function make_arraynew()
+  local empty_array 
+  return function(ct, count, src)
+    if count == 0 then
+      if not empty_array then
+        empty_array = ffi.new(ct, 0, 0)
+      end
+      return empty_array
+    end
+    local result = ffi.new(ct, count, count)
+    if src then
+      result:copyfrom(src, count)
+    end
+    return result
+  end
+end
+
+ffi.metatype("array_u8", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count)
+    end,
+  }
+})
+
+ffi.metatype("array_u16", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 2)
+    end,
+  }
+})
+
+ffi.metatype("array_u32", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 4)
+    end,
+  }
+})
+
+local u64array =  ffi.metatype("array_u64", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 8)
+    end,
+  }
+})
+
+local u8array = ffi.typeof("array_u8")
+local u16array = ffi.typeof("array_u16")
+local u32array = ffi.typeof("array_u32")
+local u64array = ffi.typeof("array_u64")
+
+local protobc = ffi.metatype("protobc", {
+  __new = function(ct, count, src)
+    local result = ffi.new(ct, count, count)
+    ffi.copy(result.bc, src, count * 4)
+    return result
+  end,
+  __index = {
+    -- Returns just the opcode of the bytecode at the specified index
+    getop = function(self, index)
+      assert(index >= 0 and index < self.length)
+      return band(self.bc[index], 0xff)
+    end,
+    
+    findop = function(self, op)
+      for i = 0, self.length-1 do
+        if band(self.bc[index], 0xff) == op then
+          return i
+        end
+        return -1
+      end
+    end,
+    -- Returns the opcode and the a, b, c, d operand fields of the bytecode at the specified index
+    -- See http://wiki.luajit.org/Bytecode-2.0#introduction
+    getbc = function(self, index)
+      assert(index >= 0 and index < self.length)
+      local bc = self.bc[index]
+      return band(bc, 0xff), band(rshift(bc, 8), 0xff), band(rshift(bc, 24), 0xff), band(rshift(bc, 16), 0xff), band(rshift(bc, 16), 0xffff)
+    end,
+  }
+})
+
+-- Just mask to the lower 48 bits that will fit in to a double
+local function addrtonum(address)
+  return (tonumber(bit.band(address, 0xffffffffffffULL)))
+end
+
 local base_actions = {}
 
 function base_actions:stringmarker(msg)
@@ -44,7 +180,7 @@ function base_actions:stringmarker(msg)
     flags = flags,
     type = "string"
   }
-  self.markers[#self.markers + 1] = marker
+  tinsert(self.markers, marker)
   self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
   return marker
 end
@@ -55,6 +191,107 @@ function base_actions:enumdef(msg)
   self.enums[name] = make_enum(names)
   self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
   return name, names
+end
+
+function base_actions:gcstring(msg)
+  local string = msg:get_data()
+  local address = addrtonum(msg.address)
+  self.strings[address] = string
+  self:log_msg("gcstring", "GCstring: %s, %s", address, string)
+  return string, address
+end
+
+local gcproto = {}
+
+function gcproto:get_location()
+  return (format("%s:%d", self.chunk, self.firstline))
+end
+
+function gcproto:get_linenumber(bcidx)
+  -- There is never any line info for the first bytecode so use the firstline
+  if bcidx == 0 then
+    return self.firstline
+  end
+  return self.firstline + self.lineinfo:get(bcidx-1)
+end
+
+function gcproto:dumpbc()
+  local currline = -1
+  local lineinfo = self.lineinfo
+  local bcnames = self.owner.enums.bc
+  
+  for i = 0, self.bclen-1 do
+    if lineinfo.array[i] ~= currline then
+      currline = lineinfo.array[i]
+      print(format("%s:%d", self.chunk or "?", self.firstline + lineinfo.array[i]))
+    end
+    local op, a, b, c, d = self.bc:getbc(i)
+    print(format(" %s, %d, %d, %d, %d", bcnames[op+1], a, b, c, d))
+  end
+end
+
+function gcproto:get_bcop(index)
+  return (self.owner.enums.bc[self.bc:getop(index)])
+end
+
+function gcproto:get_rawbc(index)
+  return (self.bc:getbc(index))
+end
+
+local proto_mt = {__index = gcproto}
+
+local nullarray = {0}
+local nobc = ffi.new("protobc", 0, 1, nullarray)
+local nolineinfo = ffi.new("array_u8", 0, 1)
+
+function base_actions:gcproto(msg)
+  local address = addrtonum(msg.address)
+  local chunk = self.strings[addrtonum(msg.chunkname)]
+  local proto = {
+    owner = self,
+    chunk = chunk, 
+    firstline = msg.firstline, 
+    numline = msg.numline,
+    bclen = msg.bclen,
+    bcaddr = addrtonum(msg.bcaddr),
+    address = address,
+  }
+  setmetatable(proto, proto_mt)
+  proto.hotslot = band(rshift(proto.bcaddr, 2), 64-1)
+  self.proto_lookup[address] = proto
+  
+  local bclen = proto.bclen
+  local bcarray
+  if bclen > 0 then
+    bcarray = protobc(bclen, msg:get_bc())
+  else
+    bcarray = nobc
+  end
+  proto.bc = bcarray
+
+  local lineinfo, lisize
+  if bclen == 0 or msg.lineinfosize == 0 then
+    -- We won't have any line info for internal functions or if the debug info is stripped
+    lineinfo = nolineinfo
+  elseif proto.numline < 255 then
+    lisize = 1
+    lineinfo = u8array(bclen)
+  elseif proto.numline < 0xffff then
+    lisize = 2
+    lineinfo = u16array(bclen)
+  else
+    lisize = 4
+    lineinfo = u32array(bclen)
+  end
+  if lineinfo ~= nolineinfo then
+    assert(msg.lineinfosize == bclen * lisize)
+    lineinfo:copyfrom(msg:get_lineinfo())
+  end
+  proto.lineinfo = lineinfo
+
+  tinsert(self.protos, proto)
+  self:log_msg("gcproto", "GCproto(%d): %s, hotslot %d", address, proto:get_location(), proto.hotslot)
+  return proto
 end
 
 function base_actions:traceexit(msg)
@@ -93,7 +330,7 @@ function base_actions:alltraceflush(msg)
     maxmcode = msg.mcodelimit,
     maxtrace = msg.tracelimit,
   }
-  self.flushes[#self.flushes + 1] = flush
+  tinsert(self.flushes, flush)
   self:log_msg("alltraceflush", "TraceFlush: Reason '%s', maxmcode %d, maxtrace %d", flush.reason, msg.mcodelimit, msg.tracelimit)
   return flush
 end
@@ -362,7 +599,7 @@ local function applymixin(self, mixin)
       if not list then
         self.actions[name] = {action}
       else
-        list[#list + 1] = action
+        tinsert(list, action)
       end
     end
   end
@@ -414,6 +651,9 @@ local function makereader(mixins)
     eventid = 0,
     actions = {},
     markers = {},
+    strings = {},
+    protos = {},
+    proto_lookup = {},
     flushes = {},
     exits = 0,
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
