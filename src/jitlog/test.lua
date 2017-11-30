@@ -255,6 +255,35 @@ function tests.gcstate()
   end
 end
 
+function tests.proto()
+  jitlog.start()
+  loadstring("return 1")
+  loadstring("\nreturn 1, 2")
+  local result = parselog(jitlog.savetostring())
+  checkheader(result.header)
+  assert(#result.protos == 2)
+  
+  assert(result.protos[1].firstline == 0)
+  assert(result.protos[2].firstline == 0)
+  assert(result.protos[1].numline == 1)
+  assert(result.protos[2].numline == 2)
+  assert(result.protos[1].chunk == "return 1")
+  assert(result.protos[2].chunk == "\nreturn 1, 2")
+  assert(result.protos[1].bclen == 3)
+  assert(result.protos[2].bclen == 4)
+end
+
+function tests.protoloaded()
+  jitlog.start()
+  loadstring("return 1")
+  loadstring("\nreturn 2")
+  local result = parselog(jitlog.savetostring())
+  assert(#result.protos == 2)
+  assert(result.protos[1].created)
+  assert(result.protos[2].created > result.protos[1].created)
+  assert(result.protos[2].createdid > result.protos[1].createdid)
+end
+
 local failed = false
 
 for name, test in pairs(tests) do
