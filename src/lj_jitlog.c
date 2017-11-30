@@ -212,6 +212,15 @@ static void jitlog_gcstate(JITLogState *context, int newstate)
   log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
 }
 
+static void jitlog_protoloaded(JITLogState *context, GCproto *pt)
+{
+  if (context->user.logfilter & LOGFILTER_PROTO_LOADED) {
+    return;
+  }
+  memorize_proto(context, pt);
+  log_protoloaded(context->g, pt);
+}
+
 static void free_context(JITLogState *context);
 
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
@@ -228,6 +237,9 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
       jitlog_traceflush(context, (FlushReason)(uintptr_t)eventdata);
       break;
 #endif
+    case VMEVENT_BC:
+      jitlog_protoloaded(context, (GCproto*)eventdata);
+      break;
     case VMEVENT_GC_STATECHANGE:
       jitlog_gcstate(context, (int)(uintptr_t)eventdata);
       break;
