@@ -352,6 +352,26 @@ static int getcpumodel(char *model)
 
 #endif
 
+const char* gcstates[] = {
+  "pause", 
+  "propagate", 
+  "atomic", 
+  "sweepstring", 
+  "sweep", 
+  "finalize",
+};
+
+const char* flushreason[] = {
+  "other",
+  "user_requested",
+  "maxmcode",
+  "maxtrace",
+  "profile_toggle",
+  "set_builtinmt",
+  "set_immutableuv",
+};
+
+#define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
 
 static void write_header(JITLogState *context)
 {
@@ -363,6 +383,9 @@ static void write_header(JITLogState *context)
   bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
   log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
   lj_buf_free(context->g, &sb);
+
+  write_enum(context, "gcstate", gcstates);
+  write_enum(context, "flushreason", flushreason);
 }
 
 static int jitlog_isrunning(lua_State *L)
