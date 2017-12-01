@@ -26,6 +26,28 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
+static int bufwrite_strlist(SBuf *sb, const char *const *list, int limit)
+{
+  const char *const *pos = list;
+  int count = 0;
+  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
+    const char *s = *pos;
+    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
+  }
+  return count;
+}
+
+static void write_enumdef(JITLogState *context, const char *name, const char *const *names, uint32_t namecount, int isbitflags)
+{
+  SBuf sb;
+  global_State *g = context->g;
+  lj_buf_init(mainthread(g), &sb);
+  int count = bufwrite_strlist(&sb, names, namecount);
+  lua_assert(namecount == count);
+  log_enumdef(g, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
+  lj_buf_free(g, &sb);
+}
+
 #if LJ_HASJIT
 
 static const uint32_t large_traceid = 1 << 14;
@@ -111,16 +133,26 @@ static int getcpumodel(char *model)
 
 #endif
 
-static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
-{
-  const char** pos = list;
-  int count = 0;
-  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
-    const char *s = *pos;
-    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
-  }
-  return count;
-}
+static const char *const gcstates[] = {
+  "pause", 
+  "propagate", 
+  "atomic", 
+  "sweepstring", 
+  "sweep", 
+  "finalize",
+};
+
+static const char *const flushreason[] = {
+  "other",
+  "user_requested",
+  "maxmcode",
+  "maxtrace",
+  "profile_toggle",
+  "set_builtinmt",
+  "set_immutableuv",
+};
+
+#define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
 
 static void write_header(JITLogState *context)
 {
@@ -132,6 +164,9 @@ static void write_header(JITLogState *context)
   bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
   log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
   lj_buf_free(context->g, &sb);
+
+  write_enum(context, "gcstate", gcstates);
+  write_enum(context, "flushreason", flushreason);
 }
 
 static int jitlog_isrunning(lua_State *L)

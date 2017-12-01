@@ -26,6 +26,14 @@ function base_actions:stringmarker(msg)
   return marker
 end
 
+function base_actions:enumdef(msg)
+  local name = msg:get_name()
+  local names = msg:get_valuenames()
+  self.enums[name] = names
+  self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
+  return name, names
+end
+
 function base_actions:traceexit(msg)
   local id = msg:get_traceid()
   local exit = msg:get_exit()
@@ -393,6 +401,7 @@ local function makereader(mixins)
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
+    enums = {},
     verbose = false,
     logfilter = {
       --header = true,
