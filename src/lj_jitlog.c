@@ -35,6 +35,28 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
+static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
+{
+  const char** pos = list;
+  int count = 0;
+  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
+    const char *s = *pos;
+    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
+  }
+  return count;
+}
+
+static void write_enumdef(JITLogState *context, const char* name, const char **names, uint32_t namecount, int isbitflags)
+{
+  SBuf sb;
+  global_State *g = context->g;
+  lj_buf_init(mainthread(g), &sb);
+  int count = bufwrite_strlist(&sb, names, namecount);
+  lua_assert(namecount == count);
+  log_enumdef(g, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
+  lj_buf_free(g, &sb);
+}
+
 static GCtab* create_pinnedtab(lua_State *L)
 {
   GCtab *t = lj_tab_new(L, 0, 0);
@@ -330,16 +352,6 @@ static int getcpumodel(char *model)
 
 #endif
 
-static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
-{
-  const char** pos = list;
-  int count = 0;
-  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
-    const char *s = *pos;
-    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
-  }
-  return count;
-}
 
 static void write_header(JITLogState *context)
 {
