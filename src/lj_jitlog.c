@@ -248,11 +248,28 @@ static int jlib_save(lua_State *L)
   return 0;
 }
 
+static int jlib_savetostring(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  lua_pushlstring(L, sbufB(&context->eventbuf), sbuflen(&context->eventbuf));
+  return 1;
+}
+
+static int jlib_getsize(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  SBuf *sb = &context->eventbuf;
+  lua_pushnumber(L, sbuflen(sb));
+  return 1;
+}
+
 static const luaL_Reg jitlog_lib[] = {
   {"start", jlib_start},
   {"shutdown", jlib_shutdown},
   {"reset", jlib_reset},
   {"save", jlib_save},
+  {"savetostring", jlib_savetostring},
+  {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
   {NULL, NULL},
 };
