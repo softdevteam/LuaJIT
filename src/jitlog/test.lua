@@ -147,19 +147,47 @@ local function checkheader(header)
   assert(header.version > 0)
 end
 
+local function parselog(log, verbose)
+  local result
+  if verbose then
+    result = readerlib.makereader()
+    result.verbose = true
+    assert(result:parse_buffer(log, #log))
+  else
+    result = readerlib.parsebuffer(log)
+  end
+  checkheader(result.header)
+  return result
+end
+
 function tests.header()
   jitlog.start()
+  local result = parselog(jitlog.savetostring())
+  checkheader(result.header)
+end
+
+function tests.savetofile()
+  jitlog.start()
   jitlog.save("jitlog.bin")
-  local result = readerlib.parsefile("jitlog.bin")  
+  local result = readerlib.parsefile("jitlog.bin")
   checkheader(result.header)
 end
 
 function tests.reset()
   jitlog.start()
+  local headersize = jitlog.getsize()
+  jitlog.addmarker("marker")
+  -- Should have grown by at least 10 = 6 chars + 4 byte msg header
+  assert(jitlog.getsize()-headersize >= 10)
+  local log1 = jitlog.savetostring()
+  -- Clear the log and force a new header to be written
   jitlog.reset()
-  jitlog.save("jitlog.bin")
-  local result = readerlib.parsefile("jitlog.bin")  
-  checkheader(result.header)
+  assert(jitlog.getsize() == headersize)
+  local log2 = jitlog.savetostring()
+  assert(#log1 > #log2)
+
+  parselog(log1)
+  parselog(log2)
 end
 
 local failed = false

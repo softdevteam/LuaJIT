@@ -239,6 +239,9 @@ end
 local lib = {
   makereader = makereader,
   parsebuffer = function(buff, length)
+    if not length then
+      length = #buff
+    end
     local reader = makereader()
     assert(reader:parse_buffer(buff, length))
     return reader
