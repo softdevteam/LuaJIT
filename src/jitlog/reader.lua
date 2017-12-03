@@ -10,8 +10,7 @@ local msgsizes = logdef.msgsizes
 
 local base_actions = {}
 
-function base_actions:stringmarker(buff)
-  local msg = ffi.cast("MSG_stringmarker*", buff)
+function base_actions:stringmarker(msg)
   local label = msg:get_label()
   local flags = msg:get_flags()
   local time = msg.time
@@ -24,6 +23,7 @@ function base_actions:stringmarker(buff)
   }
   self.markers[#self.markers + 1] = marker
   self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
+  return marker
 end
 
 local logreader = {}
@@ -150,6 +150,31 @@ end
 
 local function nop() end
 
+local function make_msghandler(msgname, base, funcs)
+  -- See if we can go for the simple case with no extra funcs call first
+  if not funcs or (type(funcs) == "table" and #funcs == 0) then
+    return function(self, buff, limit)
+      base(self, ffi.cast(msgname.."*", buff), limit)
+      return
+    end
+  elseif type(funcs) == "function" or #funcs == 1 then
+    local f = (type(funcs) == "function" and funcs) or funcs[1]
+    return function(self, buff, limit)
+      local msg = ffi.cast(msgname, buff)
+      f(self, msg, base(self, msg, limit))
+      return
+    end
+  else
+    return function(self, buff, limit)
+      local msg = ffi.cast(msgname, buff)
+      local ret1, ret2 = base(msg, limit)
+      for _, f in ipairs(funcs) do
+        f(self, msg, ret1, ret2)
+      end
+    end
+  end
+end
+
 function logreader:processheader(header)
   self.starttime = header.starttime
 
@@ -186,18 +211,20 @@ function logreader:processheader(header)
       assert(-size < 4*1024)
     else
       -- Msg size dispatch table is designed to be only 8 bits per slot
-      assert(size < 255)
+      assert(size < 255 and size >= 4)
     end
   end
 
-  local actionfuncs = self.actions or base_actions
-
   -- Map message functions associated with a message name to this files message types
-  local dispatch = table.new(255, 0) 
+  local dispatch = table.new(255, 0)
+  for i = 0, 254 do
+    dispatch[i] = nop
+  end
+  local base_actions = self.base_actions or base_actions
   for i, name in ipairs(header.msgnames) do
-    local action = actionfuncs[name]
-    if action then
-      dispatch[i-1] = action
+    local action = self.actions[name]
+    if base_actions[name] or action then
+      dispatch[i-1] = make_msghandler("MSG_"..name, base_actions[name], action)
     end
   end
   self.dispatch = dispatch
@@ -226,9 +253,38 @@ end
 
 local mt = {__index = logreader}
 
-local function makereader()
+local function applymixin(self, mixin)
+  if mixin.init then
+    mixin.init(self)
+  end
+  if mixin.actions then
+    for name, action in pairs(mixin.actions) do
+      local list = self.actions[name] 
+      if not list then
+        self.actions[name] = {action}
+      else
+        list[#list + 1] = action
+      end
+    end
+  end
+  if mixin.aftermsg then
+    if not self.allmsgcb then
+      self.allmsgcb = mixin.aftermsg
+    else
+      local callback1 = self.allmsgcb
+      local callback2 = mixin.aftermsg
+      self.allmsgcb = function(self, msgtype, size, pos)
+        callback1(self, msgtype, size, pos)
+        callback2(self, msgtype, size, pos)
+      end
+    end
+  end
+end
+
+local function makereader(mixins)
   local t = {
     eventid = 0,
+    actions = {},
     markers = {},
     verbose = false,
     logfilter = {
@@ -236,6 +292,11 @@ local function makereader()
       --stringmarker = true,
     }
   }
+  if mixins then
+    for _, mixin in ipairs(mixins) do
+      applymixin(t, mixin)
+    end
+  end
   return setmetatable(t, mt)
 end
 
@@ -254,6 +315,8 @@ local lib = {
     reader:parsefile(filepath)
     return reader
   end,
+  base_actions = base_actions,
+  make_msgparser = make_msgparser,
 }
 
 return lib
