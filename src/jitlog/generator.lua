@@ -344,9 +344,56 @@ function parser:parse_msglist(msgs)
   end
 end
 
+local filecache = {}
+
+local function readfile(path)
+  if filecache[path] then
+    return filecache[path]
+  end
+  local f = io.open(path, "rb")
+  assert(f, "failed to open "..path)
+  local content = f:read("*all")
+  f:close()
+  filecache[path] = content
+  return content
+end
+
+local function file_collectmatches(path, patten, namelist, seen)
+  local file = readfile(path)
+  namelist = namelist or {}
+
+  for name in string.gmatch(file, patten) do
+    name = trim(name)
+    if not seen[name] then
+      table.insert(namelist, name)
+      seen[name] = true
+    end
+  end
+  return namelist, seen
+end
+
+local function collectmatches(paths, patten)
+  local t, seen = {}, {}
+
+  for _, path in ipairs(paths) do
+    t, seen = file_collectmatches(path, patten, t, seen)
+  end
+
+  table.sort(t)
+  return t
+end
+
+function parser:scan_instrumented_files()
+  for name, def in pairs(self.namescans) do
+    local t = collectmatches(self.files_to_scan, def.patten)
+    def.matches = t
+  end
+end
+
 parser.builtin_msgorder = {
   header = 0,
   enumdef = 1,
+  section = 3,
 }
 
 local function sortmsglist(msglist, msgorder)
@@ -372,7 +419,8 @@ local copyfields = {
   "msglist",
   "msglookup",
   "sorted_msgnames",
-  "types", 
+  "types",
+  "namescans",
 }
 
 function parser:complete()
@@ -753,9 +801,34 @@ function generator:write_msgsizes(dispatch_table)
   self:writetemplate(template, {list = sizes, count = #self.sorted_msgnames})
 end
 
-function generator:write_msgdefs()
+function generator:write_msgdefs(mode)
+  local seen_enums = {}
   for _, def in ipairs(self.msglist) do
-    self:write_struct(def.name, def)
+    if def.enumlist then
+      local names = self.namescans[def.enumlist]
+      seen_enums[names.enumname] = true
+      if mode ~= "namelists" then
+        self:write_enum(names.enumname, names.matches, names.enumprefix)
+      end
+      if mode ~= "structdef" then
+        self:write_namelist(def.enumlist.."_names", names.matches)
+      end
+    end
+    if mode ~= "namelists" then
+      self:write_struct(def.name, def)
+    end
+  end
+
+  -- Write any leftover enums that are not associated with a message struct like vmperf counters.
+  for name, def in pairs(self.namescans) do
+    if not seen_enums[def.enumname] then
+      if mode ~= "namelists" then
+        self:write_enum(def.enumname, def.matches, def.enumprefix)
+      end
+      if mode ~= "structdef" then
+        self:write_namelist(name.."_names", def.matches)
+      end
+    end
   end
 end
 
@@ -780,6 +853,8 @@ function generator:write_cheader(options)
   self:write_namelist("msgnames", self.sorted_msgnames)
   self:write_msgsizes()
   self:write_msgsizes(true)
+  
+  self:write_msgdefs("namelists")
   
   self:write("#endif\n")
   self.outputfile:close()
