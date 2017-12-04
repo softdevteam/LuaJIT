@@ -480,6 +480,8 @@ LJLIB_O= lib_base.o lib_math.o lib_bit.o lib_string.o lib_table.o \
 	 lib_io.o lib_os.o lib_package.o lib_debug.o lib_jit.o lib_ffi.o
 LJLIB_C= $(LJLIB_O:.o=.c)
 
+LJOPT_O= lj_vmevent_printer.o lj_jitlog.o
+
 LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o lj_buf.o \
 	  lj_str.o lj_tab.o lj_func.o lj_udata.o lj_meta.o lj_debug.o \
 	  lj_state.o lj_dispatch.o lj_vmevent.o lj_vmmath.o lj_strscan.o \
@@ -491,8 +493,8 @@ LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o lj_buf.o \
 	  lj_asm.o lj_trace.o lj_gdbjit.o \
 	  lj_ctype.o lj_cdata.o lj_cconv.o lj_ccall.o lj_ccallback.o \
 	  lj_carith.o lj_clib.o lj_cparse.o \
-	  lj_lib.o lj_alloc.o lib_aux.o lj_vmevent_printer.o \
-	  $(LJLIB_O) lib_init.o
+	  lj_lib.o lj_alloc.o lib_aux.o \
+	  $(LJOPT_O) $(LJLIB_O) lib_init.o
 
 LJVMCORE_O= $(LJVM_O) $(LJCORE_O)
 LJVMCORE_DYNO= $(LJVMCORE_O:.o=_dyn.o)
@@ -506,8 +508,8 @@ LUAJIT_SO= libluajit.so
 LUAJIT_T= luajit
 
 ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(HOST_T)
-ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h \
-	    host/buildvm_arch.h
+ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h  \
+	    lj_jitlog_def.h lj_jitlog_writers.h host/buildvm_arch.h
 ALL_GEN= $(LJVM_S) $(ALL_HDRGEN) $(LIB_VMDEFP)
 WIN_RM= *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
 ALL_RM= $(ALL_T) $(ALL_GEN) *.o host/*.o $(WIN_RM)
@@ -636,6 +638,9 @@ host/buildvm_arch.h: $(DASM_DASC) $(DASM_DEP) $(DASM_DIR)/*.lua
 	$(E) "DYNASM    $@"
 	$(Q)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
 
+lj_jitlog_def.h lj_jitlog_writers.h: $(DASM_DEP) jitlog/messages.lua jitlog/generator.lua jitlog/c_generator.lua
+	$(HOST_LUA) jitlog/build.lua
+  
 host/buildvm.o: $(DASM_DIR)/dasm_*.h
 
 $(BUILDVM_T): $(BUILDVM_O)
@@ -693,6 +698,8 @@ $(HOST_O): %.o: %.c
 	$(Q)$(HOST_CC) $(HOST_ACFLAGS) -c -o $@ $<
 
 include Makefile.dep
+
+lj_jitlog.o: lj_jitlog_def.h lj_jitlog_writers.h
 
 ##############################################################################
 # Target file rules.
