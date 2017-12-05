@@ -165,6 +165,12 @@ local msgs = {
     "strnum : u32",
     "time : timestamp",
   },
+  
+  {
+    name = "hotcounts",
+    "counts_length :  u16",
+    "counts : u16[counts_length]",
+  },
 }
 
 return msgs
