@@ -186,8 +186,9 @@ function tests.reset()
   local log2 = jitlog.savetostring()
   assert(#log1 > #log2)
 
-  parselog(log1)
-  parselog(log2)
+  local result1 = parselog(log1)
+  local result2 = parselog(log2)
+  assert(result1.starttime < result2.starttime)
 end
 
 local failed = false

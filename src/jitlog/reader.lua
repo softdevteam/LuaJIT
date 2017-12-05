@@ -65,6 +65,7 @@ function logreader:readheader(buff, buffsize, info)
   info.fixedsize = header.headersize
   info.os = header:get_os()
   info.cpumodel = header:get_cpumodel()
+  info.starttime = header.starttime
   self:log_msg("header", "LogHeader: Version %d, OS %s, CPU %s", info.version, info.os, info.cpumodel)
 
   local file_msgnames = header:get_msgnames()
@@ -150,6 +151,8 @@ end
 local function nop() end
 
 function logreader:processheader(header)
+  self.starttime = header.starttime
+
   -- Make the msgtype enum for this file
   local msgtype = {
     names = header.msgnames
