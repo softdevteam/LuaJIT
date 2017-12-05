@@ -39,6 +39,7 @@ local msgs = {
     "cpumodel_length : u8",
     "cpumodel : string[cpumodel_length]",
     "os : string",
+    "starttime : timestamp",
     "ggaddress : u64",
   },
   
