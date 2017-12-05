@@ -33,6 +33,7 @@ typedef struct JITLogState {
   BCPos lastpc;
   GCfunc *lastlua;
   GCfunc *lastfunc;
+  uint16_t lasthotcounts[HOTCOUNT_SIZE];
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -603,6 +604,7 @@ LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
   lj_tab_clear(context->protos);
   lj_tab_clear(context->funcs);
   lj_buf_reset(&context->eventbuf);
+  memset(context->lasthotcounts, 0, HOTCOUNT_SIZE * sizeof(short));
   write_header(context);
 }
 
@@ -629,6 +631,19 @@ LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
   }
   fclose(dumpfile);
   return result;
+}
+
+LUA_API void jitlog_savehotcounts(JITLogUserContext *usrcontext)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  GG_State *gg = G2GG(context->g);
+#if LJ_HASJIT
+  if (memcmp(context->lasthotcounts, gg->hotcount, sizeof(gg->hotcount)) == 0) {
+    return;
+  }
+  memcpy(context->lasthotcounts, gg->hotcount, sizeof(gg->hotcount));
+  log_hotcounts(context->g, G2GG(context->g)->hotcount, HOTCOUNT_SIZE);
+#endif
 }
 
 /* -- Lua module to control the JITLog ------------------------------------ */
@@ -702,6 +717,41 @@ static int jlib_getsize(lua_State *L)
   return 1;
 }
 
+#if LJ_HASJIT
+
+static int jlib_cmp_hotcounts(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  GG_State *gg = G2GG(context->g);
+  int i, changed = 0;
+  for (i = 0; i != HOTCOUNT_SIZE; i++) {
+    if (context->lasthotcounts[i] != gg->hotcount[i]) changed++;
+  }
+  lua_pushnumber(L, changed);
+  return 1;
+}
+
+static int jlib_snap_hotcounts(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  GG_State *gg = G2GG(context->g);
+  memcpy(context->lasthotcounts, gg->hotcount, sizeof(gg->hotcount));
+  return 0;
+}
+
+/*
+** Write the Lua function hot counters to the JITLog if they've changed since the last call to
+** snap_hotcounts or write_hotcounts.
+*/
+static int jlib_write_hotcounts(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  jitlog_savehotcounts(ctx2usr(context));
+  return 0;
+}
+
+#endif
+
 static const luaL_Reg jitlog_lib[] = {
   {"start", jlib_start},
   {"shutdown", jlib_shutdown},
@@ -710,6 +760,11 @@ static const luaL_Reg jitlog_lib[] = {
   {"savetostring", jlib_savetostring},
   {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
+#if LJ_HASJIT
+  {"snap_hotcounts", jlib_snap_hotcounts},
+  {"cmp_hotcounts", jlib_cmp_hotcounts},
+  {"write_hotcounts", jlib_write_hotcounts},
+#endif
   {NULL, NULL},
 };
 

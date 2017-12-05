@@ -206,6 +206,12 @@ local msgs = {
     "ffid : u8",
     { name = "upvalues", length = "nupvalues", type = "u64", argtype = "TValue *" },
   },
+
+  {
+    name = "hotcounts",
+    "counts_length :  u16",
+    "counts : u16[counts_length]",
+  },
 }
 
 return msgs
