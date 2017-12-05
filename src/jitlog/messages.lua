@@ -16,9 +16,9 @@ local msgs = {
   
   {
     name = "stringmarker",
+    "time : timestamp",
     "flags : 16",
     "label : string",
-    "time : timestamp",
     use_msgsize = "label",
   },
 }

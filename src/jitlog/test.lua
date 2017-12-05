@@ -190,6 +190,20 @@ function tests.reset()
   parselog(log2)
 end
 
+function tests.stringmarker()
+  jitlog.start()
+  jitlog.addmarker("marker1")
+  jitlog.addmarker("marker2", 0xbeef)
+  local result = parselog(jitlog.savetostring())
+  assert(#result.markers == 2)
+  assert(result.markers[1].label == "marker1")
+  assert(result.markers[2].label == "marker2")
+  assert(result.markers[1].eventid < result.markers[2].eventid)
+  assert(result.markers[1].time < result.markers[2].time)
+  assert(result.markers[1].flags == 0)
+  assert(result.markers[2].flags == 0xbeef)
+end
+
 local failed = false
 
 for name, test in pairs(tests) do
