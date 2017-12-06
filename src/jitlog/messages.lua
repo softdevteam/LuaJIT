@@ -175,6 +175,13 @@ local msgs = {
   },
 
   {
+    name = "protobl",
+    "time : timestamp",
+    { name = "proto", type = "GCRefPtr", argtype = "GCproto *" },
+    "bcindex : 24",
+  },
+
+  {
     name = "alltraceflush",
     "time : timestamp",
     "reason : u16",
