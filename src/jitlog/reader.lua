@@ -113,6 +113,20 @@ function base_actions:traceexit(msg)
   return id, exit, gcexit
 end
 
+function base_actions:protobl(msg)
+  local address = addrtonum(msg.proto)
+  local proto = self.proto_lookup[address]
+  local blacklist = {
+    eventid = self.eventid,
+    proto = proto,
+    bcindex = msg:get_bcindex(),
+    time = msg.time,
+  }
+  self.proto_blacklist[#self.proto_blacklist + 1] = blacklist
+  self:log_msg("protobl", "ProtoBlacklisted(%d): %s:%d", address, proto.chunk, proto.firstline)
+  return blacklist
+end
+
 local flush_reason =  {
   [0] = "other",
   "user_requested",
@@ -455,6 +469,7 @@ local function makereader(mixins)
     strings = {},
     protos = {},
     proto_lookup = {},
+    proto_blacklist = {},
     flushes = {},
     traces = {},
     aborts = {},
