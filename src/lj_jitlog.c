@@ -213,6 +213,9 @@ static void jitlog_tracestop(JITLogState *context, GCtrace *T)
   BCPos stoppc;
   GCproto *stoppt = getcurlualoc(context, &stoppc);
   BCPos startpc = proto_bcpos(startpt, mref(T->startpc, const BCIns));
+  if (context->user.logfilter & LOGFILTER_TRACE_COMPLETED) {
+    return;
+  }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
   log_trace(context->g, T, 0, T->traceno, J->parent, stoppt, stoppc, 0, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
@@ -226,6 +229,9 @@ static void jitlog_traceabort(JITLogState *context, GCtrace *T)
   BCPos stoppc;
   GCproto *stoppt = getcurlualoc(context, &stoppc);
   int abortreason = tvisnumber(J->L->top-1) ? numberVint(J->L->top-1) : -1;
+  if (context->user.logfilter & LOGFILTER_TRACE_ABORTS) {
+    return;
+  }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
   log_trace(context->g, T, 1, T->traceno, J->parent, stoppt, stoppc, (uint16_t)abortreason, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
@@ -248,6 +254,9 @@ static void jitlog_tracebc(JITLogState *context)
 static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
 {
   jit_State *J = G2J(context->g);
+  if (context->user.logfilter & LOGFILTER_TRACE_EXITS) {
+    return;
+  }
   if (J->parent < (1 << 14) && J->exitno < (1 << 10)) {
     log_traceexit(context->g, exitState->gcexit, J->parent, J->exitno);
   } else {
@@ -272,11 +281,17 @@ static void jitlog_traceflush(JITLogState *context, FlushReason reason)
 static void jitlog_gcstate(JITLogState *context, int newstate)
 {
   global_State *g = context->g;
+  if (context->user.logfilter & LOGFILTER_GC_STATE) {
+    return;
+  }
   log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
 }
 
 static void jitlog_protoloaded(JITLogState *context, GCproto *pt)
 {
+  if (context->user.logfilter & LOGFILTER_PROTO_LOADED) {
+    return;
+  }
   memorize_proto(context, pt);
   log_protoloaded(context->g, pt);
 }

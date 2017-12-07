@@ -3,8 +3,18 @@
 
 #include "lua.h"
 
+typedef enum JITLogFilter {
+  LOGFILTER_TRACE_COMPLETED = 0x1,
+  LOGFILTER_TRACE_ABORTS    = 0x2,
+  LOGFILTER_TRACE_EXITS     = 0x4,
+  LOGFILTER_TRACE_DATA      = 0x8,
+  LOGFILTER_PROTO_LOADED    = 0x10,
+  LOGFILTER_GC_STATE        = 0x40,
+} JITLogFilter;
+
 typedef struct JITLogUserContext {
   void *userdata;
+  JITLogFilter logfilter;
 } JITLogUserContext;
 
 LUA_API JITLogUserContext* jitlog_start(lua_State *L);
