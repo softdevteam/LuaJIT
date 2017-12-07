@@ -281,6 +281,30 @@ local function applymixin(self, mixin)
   end
 end
 
+local msgstats_mixin = {
+  init = function(self)
+    local datatotals = table.new(255, 0)
+    for i = 0, 255 do
+      datatotals[i] = 0
+    end
+    self.datatotals = datatotals
+  
+    local msgcounts = table.new(255, 0)
+    for i = 0, 255 do
+      msgcounts[i] = 0
+    end
+    self.msgcounts = msgcounts
+  end,
+  aftermsg = function(self, msgtype, size, pos)
+    self.datatotals[msgtype] = self.datatotals[msgtype] + size
+    self.msgcounts[msgtype] = self.msgcounts[msgtype] + 1
+  end,
+}
+
+local builtin_mixins = {
+  msgstats = msgstats_mixin,
+}
+
 local function makereader(mixins)
   local t = {
     eventid = 0,
@@ -317,6 +341,7 @@ local lib = {
   end,
   base_actions = base_actions,
   make_msgparser = make_msgparser,
+  mixins = builtin_mixins,
 }
 
 return lib
