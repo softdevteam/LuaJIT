@@ -865,6 +865,8 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
 
   lj_vmevent_callback_(L, VMEVENT_TRACE_EXIT,
     VMEventData_TExit eventdata;
+    eventdata.gcexit = G(L)->gc.gcexit;
+    G(L)->gc.gcexit = 0;
     eventdata.gprs = &ex->gpr;
     eventdata.gprs_size = sizeof(ex->gpr);
     eventdata.fprs = &ex->fpr;

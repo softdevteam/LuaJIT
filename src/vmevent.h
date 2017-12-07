@@ -42,6 +42,7 @@ typedef struct VMEventData_TExit {
   void *gprs;
   void *fprs;
   void *spill;
+  char gcexit;
 } VMEventData_TExit;
 
 typedef struct VMEventData_ProtoBL {
