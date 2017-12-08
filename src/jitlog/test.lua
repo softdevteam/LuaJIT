@@ -1,9 +1,9 @@
 local ffi = require("ffi")
 local format = string.format
+local reader_def = require("jitlog.reader_def")
+GC64 = reader_def.GC64
 local msgdef = require"jitlog.messages"
 local apigen = require"jitlog.generator"
-
-dofile("jitlog/build.lua")
 local readerlib = require("jitlog.reader")
 assert(readerlib.makereader())
 local jitlog = require("jitlog")
@@ -162,13 +162,19 @@ function tests.reset()
   checkheader(result.header)
 end
 
+local failed = false
+
 for name, test in pairs(tests) do
   io.stdout:write("Running: "..name.."\n")
   local success, err = pcall(test)
   if not success then
+    failed = true
     io.stderr:write("  FAILED ".. err.."\n")
   end
   pcall(jitlog.shutdown)
 end
 
-return
+if failed then
+  -- Signal that we failed to travis
+  os.exit(1)
+end

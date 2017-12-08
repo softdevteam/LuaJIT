@@ -167,7 +167,18 @@ function logreader:processheader(header)
   end
   
   self.msgsizes = header.msgsizes
-  for _, size in ipairs(header.msgsizes) do
+  for i, size in ipairs(header.msgsizes) do
+    local name = header.msgnames[i]
+    local id = MsgType[name]
+    if id and msgsizes[id + 1] ~= size then
+      local oursize = math.abs(msgsizes[id + 1])
+      local logs_size = math.abs(size)
+      if logs_size < oursize then
+        error(format("Message type %s size %d is smaller than an expected size of %d", name, logs_size, oursize))
+      else
+        self:log_msg("header", "Warning: Message type %s is larger than ours %d vs %d", name, oursize, logs_size)
+      end
+    end
     if size < 0 then
       assert(-size < 4*1024)
     else

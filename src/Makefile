@@ -280,6 +280,10 @@ ifneq (,$(findstring LJ_TARGET_PS3 1,$(TARGET_TESTARCH)))
   TARGET_XLIBS+= -lpthread
 endif
 
+ifneq (,$(findstring LJ_GC64 1,$(TARGET_TESTARCH)))
+JITLOG_FLAGS+= GC64
+endif
+
 TARGET_XCFLAGS+= $(CCOPT_$(TARGET_LJARCH))
 TARGET_ARCH+= $(patsubst %,-DLUAJIT_TARGET=LUAJIT_ARCH_%,$(TARGET_LJARCH))
 
@@ -638,8 +642,8 @@ host/buildvm_arch.h: $(DASM_DASC) $(DASM_DEP) $(DASM_DIR)/*.lua
 	$(E) "DYNASM    $@"
 	$(Q)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
 
-lj_jitlog_def.h lj_jitlog_writers.h: $(DASM_DEP) jitlog/messages.lua jitlog/generator.lua jitlog/c_generator.lua
-	$(HOST_LUA) jitlog/build.lua
+lj_jitlog_def.h lj_jitlog_writers.h: $(DASM_DEP) jitlog/build.lua jitlog/messages.lua jitlog/generator.lua jitlog/c_generator.lua
+	$(HOST_LUA) jitlog/build.lua $(JITLOG_FLAGS)
   
 host/buildvm.o: $(DASM_DIR)/dasm_*.h
 
