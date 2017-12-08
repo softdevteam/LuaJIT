@@ -154,10 +154,21 @@ end
 ]=])
   self:write_enum("MsgType", self.sorted_msgnames)
   self:write_msgsizes(false)
-  self:write[=[
+  if GC64 then
+    self:write([[
+lib.GC64 = true
+
+ffi.cdef("typedef uint64_t GCRef, MRef;")]])
+  else
+    self:write([[
+lib.GC64 = false
+
+ffi.cdef("typedef uint32_t GCRef, MRef;")]])
+  end
+  self:write([=[
+
 ffi.cdef[[
-typedef uint32_t GCRef, MRef;
-]=]
+]=])
   local struct_bitfields = {}
   for _, def in ipairs(self.msglist) do
     local bitfields = self:write_struct(def.name, def)

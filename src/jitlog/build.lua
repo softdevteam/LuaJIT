@@ -1,10 +1,9 @@
 local stdout = io.stdout
-local args = {...}
-
-GC64 = args[1] == "GC64"
+local arg
 
 --Work around the limited API when run under minilua
 if not require then
+  arg = {...}
   function print(...)
     local t = {...}
     for i, v in ipairs(t) do
@@ -37,6 +36,14 @@ if not require then
     assert(fp:close())
     return assert(loadstring(s, "@"..modulename..".lua"))()
   end
+else
+    arg = _G.arg
+end
+
+GC64 = arg[1] == "GC64"
+
+if GC64 then
+    stdout:write("GC64 = true\n")
 end
 
 local msgdef = require"jitlog.messages"
