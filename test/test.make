@@ -36,13 +36,15 @@ $(foreach build, $(BUILDS), $(eval $(call make_buildtarget,$(build))))
 
 %.build: $(SRC)/*.h $(SRC)/*.c
 	@echo "==== Building LuaJIT target = ${BUILD_TARGET} ===="
+	$(MAKE) -C $(SRC) clean
 	$(MAKE) -C $(SRC) -j XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT ${XCFLAGS}"
 	mkdir -p builds/${BUILD_TARGET}/
 	cp $(SRC)/luajit builds/${BUILD_TARGET}/
 	cp $(SRC)/libluajit.so builds/${BUILD_TARGET}/
 	mkdir -p builds/${BUILD_TARGET}/jit/
 	cp $(SRC)/jit/vmdef.lua builds/${BUILD_TARGET}/jit/
-	$(MAKE) -C $(SRC) clean
+	mkdir -p builds/${BUILD_TARGET}/jitlog/
+	cp $(SRC)/jitlog/*.lua builds/${BUILD_TARGET}/jitlog/
 	@echo "==== Successfully built LuaJIT ===="
 
 build : $(BUILDS)
@@ -52,7 +54,7 @@ all test:: $(TEST_TARGETS)
 #Builds the binaries if they don't exist first
 %.test: $$* 
 	./builds/$*/luajit testsuite/test/test.lua
-	(cd ../src && ../test/builds/$*/luajit jitlog/test.lua)
+	(cd builds/$* && ./luajit jitlog/test.lua)
 
 %.clean:
 	rm -f ./builds/$*/luajit
