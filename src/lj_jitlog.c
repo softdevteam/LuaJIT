@@ -9,6 +9,7 @@
 #include "lj_buf.h"
 #include "lj_vmevent.h"
 #include "lj_debug.h"
+#include "lj_ircall.h"
 #include "luajit.h"
 #include "lauxlib.h"
 
@@ -36,9 +37,9 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
-static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
+static int bufwrite_strlist(SBuf *sb, const char *const *list, int limit)
 {
-  const char** pos = list;
+  const char *const *pos = list;
   int count = 0;
   for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
     const char *s = *pos;
@@ -47,7 +48,7 @@ static int bufwrite_strlist(SBuf *sb, const char** list, int limit)
   return count;
 }
 
-static void write_enumdef(JITLogState *context, const char* name, const char **names, uint32_t namecount, int isbitflags)
+static void write_enumdef(JITLogState *context, const char *name, const char *const *names, uint32_t namecount, int isbitflags)
 {
   SBuf sb;
   global_State *g = context->g;
@@ -368,7 +369,7 @@ static int getcpumodel(char *model)
 
 #endif
 
-const char* gcstates[] = {
+static const char *const gcstates[] = {
   "pause", 
   "propagate", 
   "atomic", 
@@ -377,7 +378,7 @@ const char* gcstates[] = {
   "finalize",
 };
 
-const char* flushreason[] = {
+static const char *const flushreason[] = {
   "other",
   "user_requested",
   "maxmcode",
@@ -385,6 +386,49 @@ const char* flushreason[] = {
   "profile_toggle",
   "set_builtinmt",
   "set_immutableuv",
+};
+
+static const char *const bc_names[] = {
+  #define BCNAME(name, ma, mb, mc, mt)       #name,
+  BCDEF(BCNAME)
+  #undef BCNAME
+  NULL
+};
+
+static const char *const fastfunc_names[] = {
+  "Lua",
+  "C",
+  #define FFDEF(name)   #name,
+  #include "lj_ffdef.h"
+  NULL
+};
+
+static const char *const ir_names[] = {
+  #define IRNAME(name, m, m1, m2)	#name,
+  IRDEF(IRNAME)
+  #undef IRNAME
+  NULL
+};
+
+static const char *const irt_names[] = {
+  #define IRTNAME(name, size)	#name,
+  IRTDEF(IRTNAME)
+  #undef IRTNAME
+  NULL
+};
+
+static const char *const ircall_names[] = {
+  #define IRCALLNAME(cond, name, nargs, kind, type, flags)	#name,
+  IRCALLDEF(IRCALLNAME)
+  #undef IRCALLNAME
+  NULL
+};
+
+static const char * irfield_names[] = {
+  #define FLNAME(name, ofs)	#name,
+  IRFLDEF(FLNAME)
+  #undef FLNAME
+  NULL
 };
 
 #define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
@@ -402,6 +446,12 @@ static void write_header(JITLogState *context)
 
   write_enum(context, "gcstate", gcstates);
   write_enum(context, "flushreason", flushreason);
+  write_enum(context, "bc", bc_names);
+  write_enum(context, "fastfuncs", fastfunc_names);
+  write_enum(context, "ir", ir_names);
+  write_enum(context, "irtypes", irt_names);
+  write_enum(context, "ircalls", ircall_names);
+  write_enum(context, "irfields", irfield_names);
 }
 
 static int jitlog_isrunning(lua_State *L)
