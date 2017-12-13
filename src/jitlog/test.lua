@@ -233,6 +233,80 @@ function tests.userflush()
   assert(result.flushes[1].time > 0)
 end
 
+local function nojit_loop(f, n)
+  local ret
+  n = n or 200
+  for i=1, n do
+    ret = f()
+  end
+  return ret
+end
+
+jit.off(nojit_loop)
+
+function tests.protobl()
+  jitlog.start()
+  local ret1 = function() return 1 end
+  jit.off(ret1)
+  local func = function() return ret1() end
+  nojit_loop(func, 100000)
+  -- Check we also handle loop blacklisting
+  local function loopbl()
+    local ret
+    for i=1, 50000 do
+      ret = ret1()
+    end
+    return ret
+  end
+  loopbl()
+
+  local result = parselog(jitlog.savetostring())
+  assert(#result.aborts >= 2)
+  local blacklist = result.proto_blacklist 
+  assert(#blacklist == 2)
+  assert(blacklist[1].eventid < blacklist[2].eventid)
+  assert(blacklist[1].time < blacklist[2].time)
+  -- Function header blacklisted
+  assert(blacklist[1].bcindex == 0)
+  -- Loop header blacklisted
+  assert(blacklist[2].bcindex > 0)
+  assert(blacklist[1].proto ~= blacklist[2].proto)
+  assert(blacklist[1].proto.chunk:find("test.lua"))
+  assert(blacklist[2].proto.chunk:find("test.lua"))
+end
+
+function tests.trace()
+  jitlog.start()
+  local a = 0 
+  for i = 1, 300 do
+    if i >= 100 then
+      if i <= 200 then
+        a = a + 1
+      else
+        a = a + 2
+      end
+    end
+  end
+  assert(a == 301)
+  
+  local result = parselog(jitlog.savetostring())
+  assert(result.exits > 0)
+  assert(#result.aborts == 0)
+  local traces = result.traces
+  assert(#traces == 3)
+  assert(traces[1].eventid < traces[2].eventid)
+  assert(traces[1].startpt == traces[1].stoppt)
+  assert(traces[2].startpt == traces[2].stoppt)
+  assert(traces[3].startpt == traces[3].stoppt)
+  assert(traces[1].startpt == traces[2].startpt and traces[2].startpt == traces[3].startpt)
+  assert(traces[1].startpt.chunk:find("test.lua"))
+  -- Root traces should have no parent
+  assert(traces[1].parentid == 0)
+  assert(traces[2].parentid == traces[1].id)
+  assert(traces[3].parentid == traces[2].id)
+  assert(traces[1].id ~= traces[2].id and traces[2].id ~= traces[3].id)
+end
+
 end
 
 function tests.gcstate()
@@ -294,80 +368,6 @@ function tests.protoloaded()
   assert(result.protos[1].created)
   assert(result.protos[2].created > result.protos[1].created)
   assert(result.protos[2].createdid > result.protos[1].createdid)
-end
-
-function tests.trace()
-  jitlog.start()
-  local a = 0 
-  for i = 1, 300 do
-    if i >= 100 then
-      if i <= 200 then
-        a = a + 1
-      else
-        a = a + 2
-      end
-    end
-  end
-  assert(a == 301)
-  
-  local result = parselog(jitlog.savetostring())
-  assert(result.exits > 0)
-  assert(#result.aborts == 0)
-  local traces = result.traces
-  assert(#traces == 3)
-  assert(traces[1].eventid < traces[2].eventid)
-  assert(traces[1].startpt == traces[1].stoppt)
-  assert(traces[2].startpt == traces[2].stoppt)
-  assert(traces[3].startpt == traces[3].stoppt)
-  assert(traces[1].startpt == traces[2].startpt and traces[2].startpt == traces[3].startpt)
-  assert(traces[1].startpt.chunk:find("test.lua"))
-  -- Root traces should have no parent
-  assert(traces[1].parentid == 0)
-  assert(traces[2].parentid == traces[1].id)
-  assert(traces[3].parentid == traces[2].id)
-  assert(traces[1].id ~= traces[2].id and traces[2].id ~= traces[3].id)
-end
-
-local function nojit_loop(f, n)
-  local ret
-  n = n or 200
-  for i=1, n do
-    ret = f()
-  end
-  return ret
-end
-
-jit.off(nojit_loop)
-
-function tests.protobl()
-  jitlog.start()
-  local ret1 = function() return 1 end
-  jit.off(ret1)
-  local func = function() return ret1() end
-  nojit_loop(func, 100000)
-  -- Check we also handle loop blacklisting
-  local function loopbl()
-    local ret
-    for i=1, 50000 do
-      ret = ret1()
-    end
-    return ret
-  end
-  loopbl()
-
-  local result = parselog(jitlog.savetostring())
-  assert(#result.aborts >= 2)
-  local blacklist = result.proto_blacklist 
-  assert(#blacklist == 2)
-  assert(blacklist[1].eventid < blacklist[2].eventid)
-  assert(blacklist[1].time < blacklist[2].time)
-  -- Function header blacklisted
-  assert(blacklist[1].bcindex == 0)
-  -- Loop header blacklisted
-  assert(blacklist[2].bcindex > 0)
-  assert(blacklist[1].proto ~= blacklist[2].proto)
-  assert(blacklist[1].proto.chunk:find("test.lua"))
-  assert(blacklist[2].proto.chunk:find("test.lua"))
 end
 
 local failed = false
