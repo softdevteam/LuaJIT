@@ -263,14 +263,26 @@ function tests.proto()
   checkheader(result.header)
   assert(#result.protos == 2)
   
-  assert(result.protos[1].firstline == 0)
-  assert(result.protos[2].firstline == 0)
-  assert(result.protos[1].numline == 1)
-  assert(result.protos[2].numline == 2)
-  assert(result.protos[1].chunk == "return 1")
-  assert(result.protos[2].chunk == "\nreturn 1, 2")
-  assert(result.protos[1].bclen == 3)
-  assert(result.protos[2].bclen == 4)
+  local pt1, pt2 = result.protos[1], result.protos[2]  
+  assert(pt1.firstline == 0)
+  assert(pt2.firstline == 0)
+  assert(pt1.numline == 1)
+  assert(pt2.numline == 2)
+  assert(pt1.chunk == "return 1")
+  assert(pt2.chunk == "\nreturn 1, 2")
+  assert(pt1.bclen == 3)
+  assert(pt2.bclen == 4)
+  -- Top level chunks are vararg
+  assert(pt1:get_bcop(0) == "FUNCV")
+  assert(pt2:get_bcop(0) == "FUNCV")
+  assert(pt1:get_bcop(pt1.bclen-1) == "RET1")
+  assert(pt2:get_bcop(pt2.bclen-1) == "RET")
+  for i = 1, pt1.bclen-1 do
+    assert(pt1:get_linenumber(i) == 1)
+  end
+  for i = 1, pt2.bclen-1 do
+    assert(pt2:get_linenumber(i) == 2)
+  end
 end
 
 function tests.protoloaded()
