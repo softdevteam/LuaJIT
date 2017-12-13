@@ -56,7 +56,7 @@ ffi.metatype("array_u32", {
 
 ffi.metatype("protobc", {
   __index = {
-    -- Returns just the opcode of the byte code at the specifed index
+    -- Returns just the opcode of the byte code at the specified index
     getop = function(self, index)
       assert(index >= 0 and index < self.length)
       return band(self.bc[index], 0xff)
@@ -70,7 +70,7 @@ ffi.metatype("protobc", {
         return -1
       end
     end,
-    -- Returns the opcode and the a, b, c, d operand fields of the bytecode at the specifed index
+    -- Returns the opcode and the a, b, c, d operand fields of the bytecode at the specified index
     -- See http://wiki.luajit.org/Bytecode-2.0#introduction
     getbc = function(self, index)
       assert(index >= 0 and index < self.length)
