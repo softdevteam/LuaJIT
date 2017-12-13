@@ -149,9 +149,10 @@ local function parse_structcopy(msgdef, structcopy, fieldlookup)
     struct_addr.value_name = arg_name
   end
 
+  -- The list of fields to copy is a mixed array and hashtable. Array entries mean we use the same field name for both the 
+  -- source struct and destination message field.
   for name, struct_field in pairs(structcopy.fields) do
     if type(name) == "number" then
-      -- Array entrys mean we copy the value in to a field with the same name as the struct field
       name = struct_field
     end
     local f = fieldlookup[name]
