@@ -329,7 +329,7 @@ function parser:parse_msg(def)
     vsize = vcount > 0, 
     vcount = vcount, 
     sizefield = "msgsize",
-	struct_args = struct_args,
+    struct_args = struct_args,
   }
   return setmetatable(result, {__index = def})
 end
