@@ -121,6 +121,10 @@ end
 
 local gcproto = {}
 
+function gcproto:get_location()
+  return (format("%s:%d", self.chunk, self.firstline))
+end
+
 function gcproto:get_linenumber(bcidx)
   -- There is never any line info for the first bytecode so use the firstline
   if bcidx == 0 then
@@ -205,7 +209,7 @@ function base_actions:gcproto(msg)
   proto.lineinfo = lineinfo
 
   self.protos[#self.protos + 1] = proto
-  self:log_msg("gcproto", "GCproto(%d): %s: %s, hotslot %d", address, proto.chunk, proto.firstline, proto.hotslot)
+  self:log_msg("gcproto", "GCproto(%d): %s, hotslot %d", address, proto:get_location(), proto.hotslot)
   return proto
 end
 
@@ -238,10 +242,10 @@ function base_actions:trace(msg)
   if aborted then
     list = self.aborts
     trace.abortcode = msg.abortcode
-    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s:%d\n stop= %s:%d", id, msg.abortcode, msg.parentid, startpt.chunk, startpt.firstline, stoppt.chunk, stoppt.firstline)
+    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s\n stop= %s", id, msg.abortcode, msg.parentid, startpt:get_location(), stoppt:get_location())
   else
     list = self.traces
-    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s:%d\n stop= %s:%d", id,  msg.parentid, startpt.chunk, startpt.firstline, stoppt.chunk, stoppt.firstline)
+    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
   end
   list[#list + 1] = trace
   return trace
@@ -272,7 +276,8 @@ function base_actions:protobl(msg)
     time = msg.time,
   }
   self.proto_blacklist[#self.proto_blacklist + 1] = blacklist
-  self:log_msg("protobl", "ProtoBlacklisted(%d): %s:%d", address, proto.chunk, proto.firstline)
+  
+  self:log_msg("protobl", "ProtoBlacklisted(%d): %s", address, proto:get_location())
   return blacklist
 end
 
