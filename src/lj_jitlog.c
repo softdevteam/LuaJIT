@@ -392,7 +392,6 @@ static const char *const bc_names[] = {
   #define BCNAME(name, ma, mb, mc, mt)       #name,
   BCDEF(BCNAME)
   #undef BCNAME
-  NULL
 };
 
 static const char *const fastfunc_names[] = {
@@ -400,7 +399,7 @@ static const char *const fastfunc_names[] = {
   "C",
   #define FFDEF(name)   #name,
   #include "lj_ffdef.h"
-  NULL
+  #undef FFDEF
 };
 
 static const char *const terror[] = {
@@ -419,28 +418,24 @@ static const char *const ir_names[] = {
   #define IRNAME(name, m, m1, m2)	#name,
   IRDEF(IRNAME)
   #undef IRNAME
-  NULL
 };
 
 static const char *const irt_names[] = {
   #define IRTNAME(name, size)	#name,
   IRTDEF(IRTNAME)
   #undef IRTNAME
-  NULL
 };
 
 static const char *const ircall_names[] = {
   #define IRCALLNAME(cond, name, nargs, kind, type, flags)	#name,
   IRCALLDEF(IRCALLNAME)
   #undef IRCALLNAME
-  NULL
 };
 
 static const char * irfield_names[] = {
   #define FLNAME(name, ofs)	#name,
   IRFLDEF(FLNAME)
   #undef FLNAME
-  NULL
 };
 
 #define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
