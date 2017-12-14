@@ -1,6 +1,7 @@
 local ffi = require"ffi"
 require("table.new")
 local format = string.format
+local tinsert = table.insert
 local band = bit.band
 local rshift = bit.rshift
 
@@ -254,23 +255,25 @@ function base_actions:trace(msg)
   local startpt = self.proto_lookup[addrtonum(msg.startpt)]
   local stoppt = self.proto_lookup[addrtonum(msg.stoppt)]
   local trace = {
+    owner = self,
     eventid = self.eventid,
     id = id,
+    rootid = msg.root,
     parentid = msg.parentid,
     startpt = startpt,
+    startpc = msg.startpc,
     stoppt = stoppt,
+    stoppc = msg.stoppc,
     link = msg.link,
   }
-  local list
   if aborted then
-    list = self.aborts
     trace.abortcode = msg.abortcode
+    tinsert(self.aborts, trace)
     self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s\n stop= %s", id, msg.abortcode, msg.parentid, startpt:get_location(), stoppt:get_location())
   else
-    list = self.traces
+    tinsert(self.traces, trace)
     self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
   end
-  list[#list + 1] = trace
   return trace
 end
 
