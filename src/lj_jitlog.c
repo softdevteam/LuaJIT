@@ -403,6 +403,18 @@ static const char *const fastfunc_names[] = {
   NULL
 };
 
+static const char *const terror[] = {
+  #define TREDEF(name, msg)	#name,
+  #include "lj_traceerr.h"
+  #undef TREDEF
+};
+
+static const char *const trace_errors[] = {
+  #define TREDEF(name, msg)	msg,
+  #include "lj_traceerr.h"
+  #undef TREDEF
+};
+
 static const char *const ir_names[] = {
   #define IRNAME(name, m, m1, m2)	#name,
   IRDEF(IRNAME)
@@ -446,6 +458,8 @@ static void write_header(JITLogState *context)
 
   write_enum(context, "gcstate", gcstates);
   write_enum(context, "flushreason", flushreason);
+  write_enum(context, "terror", trace_errors);
+  write_enum(context, "trace_errors", trace_errors);
   write_enum(context, "bc", bc_names);
   write_enum(context, "fastfuncs", fastfunc_names);
   write_enum(context, "ir", ir_names);
