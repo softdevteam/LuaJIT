@@ -301,6 +301,9 @@ function base_actions:protobl(msg)
     bcindex = msg:get_bcindex(),
     time = msg.time,
   }
+  if not proto.blacklisted then
+    proto.blacklisted = blacklist
+  end
   self.proto_blacklist[#self.proto_blacklist + 1] = blacklist
   
   self:log_msg("protobl", "ProtoBlacklisted(%d): %s", address, proto:get_location())
