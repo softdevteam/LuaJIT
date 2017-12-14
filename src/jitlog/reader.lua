@@ -9,6 +9,29 @@ local MsgType = logdef.MsgType
 local msgnames = MsgType.names
 local msgsizes = logdef.msgsizes
 
+local enum_mt = {
+  __index = function(self, key)
+    if type(key) == "number" then
+      local result = self.names[key+1]
+      if not result then
+        error(format("No name exists for enum index %d max is %d", key, #self.names))
+      end
+      return result
+    end
+  end,
+  __len = function(self) return #self.names end
+}
+
+local function make_enum(names)
+  local t = setmetatable({}, enum_mt)
+  for i, name in ipairs(names) do
+    assert(name ~= "names")
+    t[name] = i-1
+  end
+  t.names = names
+  return t
+end
+
 ffi.cdef[[
 typedef struct array_u8 {
   int length;
@@ -106,7 +129,7 @@ end
 function base_actions:enumdef(msg)
   local name = msg:get_name()
   local names = msg:get_valuenames()
-  self.enums[name] = names
+  self.enums[name] = make_enum(names)
   self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
   return name, names
 end
@@ -149,7 +172,7 @@ function gcproto:dumpbc()
 end
 
 function gcproto:get_bcop(index)
-  return (self.owner.enums.bc[self.bc:getop(index)+1])
+  return (self.owner.enums.bc[self.bc:getop(index)])
 end
 
 function gcproto:get_rawbc(index)
@@ -489,14 +512,9 @@ function logreader:processheader(header)
   self.starttime = header.starttime
 
   -- Make the msgtype enum for this file
-  local msgtype = {
-    names = header.msgnames
-  } 
+  local msgtype = make_enum(header.msgnames)
   self.msgtype = msgtype
   self.msgnames = header.msgnames
-  for i, name in ipairs(header.msgnames) do
-    msgtype[name] = i-1
-  end
   
   for _, name in ipairs(msgnames) do
     if not msgtype[name] and name ~= "MAX" then
