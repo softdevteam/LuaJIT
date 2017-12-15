@@ -422,9 +422,7 @@
 |
 |.macro hotcall, reg
 |  mov reg, PC
-|  shr reg, 1
-|  and reg, HOTCOUNT_PCMASK
-|  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_CALL
+|  sub word [PC-6], HOTCOUNT_CALL
 |  jb ->vm_hotcall
 |.endmacro
 |

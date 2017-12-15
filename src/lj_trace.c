@@ -400,7 +400,12 @@ static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
 setpenalty:
   J->penalty[i].val = (uint16_t)val;
   J->penalty[i].reason = e;
-  hotcount_set(J2GG(J), pc+1, val);
+  /* If the pc is the function header set the hot count in the proto */
+  if (proto_bcpos(pt, pc) == 0) {
+    pt->hotcount = val;
+  } else {
+    hotcount_set(J2GG(J), pc+1, val);
+  }
 }
 
 /* -- Trace compiler state machine ---------------------------------------- */
@@ -736,7 +741,14 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, const BCIns *pc)
   /* Note: pc is the interpreter bytecode PC here. It's offset by 1. */
   ERRNO_SAVE
   /* Reset hotcount. */
-  hotcount_set(J2GG(J), pc, J->param[JIT_P_hotloop]*HOTCOUNT_LOOP);
+  if (bc_op(pc[-1]) >= BC_FUNCF && bc_op(pc[-1]) <= BC_JFUNCV) {
+    GCproto *pt = (GCproto *)(((char *)(pc-1)) - sizeof(GCproto));
+    lua_assert(pt->hotcount == 0xffff);
+    pt->hotcount = J->param[JIT_P_hotloop]*HOTCOUNT_LOOP;
+  } else {
+    hotcount_set(J2GG(J), pc, J->param[JIT_P_hotloop]*HOTCOUNT_LOOP);
+  }
+  
   /* Only start a new trace if not recording or inside __gc call or vmevent. */
   if (J->state == LJ_TRACE_IDLE &&
       !(J2G(J)->hookmask & (HOOK_GC|HOOK_VMEVENT))) {
