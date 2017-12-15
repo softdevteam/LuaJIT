@@ -71,7 +71,12 @@ GOTDEF(GOTENUM)
 typedef uint16_t HotCount;
 
 /* Number of hot counter hash table entries (must be a power of two). */
+#ifndef HOTCOUNT_SIZE_SCALE
 #define HOTCOUNT_SIZE		64
+#else
+#define HOTCOUNT_SIZE (1 << HOTCOUNT_SIZE_SCALE)
+#endif
+
 #define HOTCOUNT_PCMASK		((HOTCOUNT_SIZE-1)*sizeof(HotCount))
 
 /* Hotcount decrements. */
