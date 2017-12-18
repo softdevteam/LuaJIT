@@ -265,6 +265,7 @@ function base_actions:trace(msg)
     stoppt = stoppt,
     stoppc = msg.stoppc,
     link = msg.link,
+    stitched = msg.stitched
   }
   if aborted then
     trace.abortcode = msg.abortcode
