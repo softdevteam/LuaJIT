@@ -348,6 +348,7 @@ function base_actions:trace(msg)
     stoppc = msg.stoppc,
     link = msg.link,
     stopfunc = self.func_lookup[addrtonum(msg.stopfunc)],
+    stitched = msg:get_stitched()
   }
   if aborted then
     trace.abortcode = msg.abortcode
