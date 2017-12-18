@@ -86,7 +86,7 @@ local msgs = {
   {
     name = "trace",
     "aborted : bool",
-    { name = "id", type = "u16", argtype = "TraceNo1" },
+    "id : u16",
     { name = "parentid", type = "u16", argtype = "TraceNo1" },
     "startpt : GCRef",
     "stoppt : GCRefPtr",
@@ -110,6 +110,7 @@ local msgs = {
 
     structcopy = {
       fields = {
+        id = "traceno",
         "startpt",
         "nins",
         "nk",
