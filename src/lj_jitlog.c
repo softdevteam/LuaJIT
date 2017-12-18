@@ -208,6 +208,17 @@ static void jitlog_tracestart(JITLogState *context, GCtrace *T)
   context->lastpc = proto_bcpos(J->pt, J->pc);
 }
 
+static int isstitched(JITLogState *context, GCtrace *T)
+{
+  jit_State *J = G2J(context->g);
+  if (J->parent == 0) {
+    BCOp op = bc_op(T->startins);
+    /* The parent trace rewrites the stack so this trace is started after a the untraceable call */
+    return op == BC_CALLM || op == BC_CALL || op == BC_ITERC;
+  }
+  return 0;
+}
+
 static void jitlog_tracestop(JITLogState *context, GCtrace *T)
 {
   jit_State *J = G2J(context->g);
@@ -220,7 +231,7 @@ static void jitlog_tracestop(JITLogState *context, GCtrace *T)
   }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
-  log_trace(context->g, T, 0, T->traceno, J->parent, stoppt, stoppc, 0, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
+  log_trace(context->g, T, 0, isstitched(context, T), J->parent, stoppt, stoppc, 0, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
 }
 
 static void jitlog_traceabort(JITLogState *context, GCtrace *T)
@@ -236,7 +247,7 @@ static void jitlog_traceabort(JITLogState *context, GCtrace *T)
   }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
-  log_trace(context->g, T, 1, T->traceno, J->parent, stoppt, stoppc, (uint16_t)abortreason, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
+  log_trace(context->g, T, 1, isstitched(context, T), J->parent, stoppt, stoppc, (uint16_t)abortreason, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
 }
 
 static void jitlog_tracebc(JITLogState *context)

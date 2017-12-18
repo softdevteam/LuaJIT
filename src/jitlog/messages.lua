@@ -86,6 +86,7 @@ local msgs = {
   {
     name = "trace",
     "aborted : bool",
+    "stitched : bool",
     "id : u16",
     { name = "parentid", type = "u16", argtype = "TraceNo1" },
     "startpt : GCRef",
