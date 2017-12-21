@@ -181,6 +181,26 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
   log_gcproto(context->g, pt, proto_bc(pt), proto_bc(pt), mref(pt->k, GCRef),  lineinfo, linesize, proto_varinfo(pt), (uint32_t)vinfosz);
 }
 
+static void memorize_func(JITLogState *context, GCfunc *fn)
+{
+  lua_State *L = mainthread(context->g);
+  int i;
+
+  if (isluafunc(fn)) {
+    GCfuncL *lfunc = &fn->l;
+    TValue *upvalues = lj_mem_newvec(L, fn->l.nupvalues, TValue);
+    memorize_proto(context, funcproto(fn));
+
+    for(i = 0; i != fn->l.nupvalues; i++) {
+      upvalues[i] = *uvval(&gcref(fn->l.uvptr[i])->uv);
+    }
+    
+    log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
+  } else {
+    log_gcfunc(context->g, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
+  }
+}
+
 #if LJ_HASJIT
 
 static GCproto* getcurlualoc(JITLogState *context, uint32_t *pc)
@@ -231,6 +251,7 @@ static void jitlog_tracestop(JITLogState *context, GCtrace *T)
   }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
+  memorize_func(context, context->startfunc);
   log_trace(context->g, T, 0, isstitched(context, T), J->parent, stoppt, stoppc, 0, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
 }
 
@@ -247,6 +268,7 @@ static void jitlog_traceabort(JITLogState *context, GCtrace *T)
   }
   memorize_proto(context, startpt);
   memorize_proto(context, stoppt);
+  memorize_func(context, context->startfunc);
   log_trace(context->g, T, 1, isstitched(context, T), J->parent, stoppt, stoppc, (uint16_t)abortreason, startpc, T->ir + T->nk, (T->nins - T->nk) + 1);
 }
 

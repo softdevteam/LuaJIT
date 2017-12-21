@@ -173,6 +173,15 @@ local msgs = {
     "counts_length :  u16",
     "counts : u16[counts_length]",
   },
+  
+  {
+    name = "gcfunc",
+    "address : GCRefPtr",
+    "proto_or_cfunc : ptr",
+    "nupvalues : u8",
+    "ffid : u8",
+    { name = "upvalues", length = "nupvalues", type = "u64", argtype = "TValue *" },
+  },
 }
 
 return msgs
