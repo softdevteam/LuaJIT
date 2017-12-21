@@ -18,6 +18,17 @@
 #include "jitlog.h"
 
 
+typedef struct FuncChange {
+  GCfunc *fn;
+  int depth;
+  int ircount;
+} FuncChange;
+
+typedef struct PCChange {
+  BCPos bcindex;
+  int ircount;
+} PCChange;
+
 typedef struct JITLogState {
   SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
   JITLogUserContext user;
@@ -31,6 +42,9 @@ typedef struct JITLogState {
   BCPos lastpc;
   GCfunc *lastlua;
   GCfunc *lastfunc;
+  FuncChange *fn_changes;
+  uint32_t func_changes_count;
+  uint32_t func_changes_capacity;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
 } JITLogState;
 
@@ -196,7 +210,14 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
     }
     
     log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
+    lj_mem_freevec(context->g, upvalues, fn->l.nupvalues, TValue);
   } else {
+    TValue key;
+    setfuncV(L, &key, fn);
+    /* Only write each proto once to the jitlog */
+    if (!memorize_gcref(L, context->protos, &key, &context->protocount)) {
+      return;
+    }
     log_gcfunc(context->g, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
   }
 }
@@ -226,6 +247,7 @@ static void jitlog_tracestart(JITLogState *context, GCtrace *T)
   context->startfunc = J->fn;
   context->lastfunc = context->lastlua = J->fn;
   context->lastpc = proto_bcpos(J->pt, J->pc);
+  context->func_changes_count = 0;
 }
 
 static int isstitched(JITLogState *context, GCtrace *T)
@@ -277,6 +299,16 @@ static void jitlog_tracebc(JITLogState *context)
   jit_State *J = G2J(context->g);
   if (context->lastfunc != J->fn) {
     context->lastfunc = J->fn;
+
+    FuncChange *change = context->fn_changes + context->func_changes_count;
+    change->fn = J->fn;
+    change->depth = J->framedepth;
+    change->ircount = J->cur.nins - REF_BIAS;
+    memorize_func(context, J->fn);
+
+   // if (++context->func_changes_count == context->func_changes_capacity) {
+    //  lj_mem_growvec(J->L, context->fn_changes, context->func_changes_capacity, LJ_MAX_MEM32, FuncChange);
+    //}
   }
 
   if (J->pt) {
@@ -517,9 +549,12 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context->g = G(L);
   context->strings = create_pinnedtab(L);
   context->protos = create_pinnedtab(L);
+  context->fn_changes = lj_mem_newvec(L, 32, FuncChange);
+  context->func_changes_capacity = 32;
 
   MSize total = G(L)->gc.total;
   SBuf *sb = &context->eventbuf;
+
   lj_buf_init(L, sb);
   lj_buf_more(sb, 1024*1024*100);
   /* 
@@ -545,6 +580,7 @@ static void free_context(JITLogState *context)
 
   g->gc.total += sbufsz(&context->eventbuf);
   lj_buf_free(g, &context->eventbuf);
+  lj_mem_freevec(context->g, context->fn_changes, context->func_changes_capacity, FuncChange);
   free(context);
 }
 
