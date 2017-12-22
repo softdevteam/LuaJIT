@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local hasjit = pcall(require, "jit.opt")
 local format = string.format
 local reader_def = require("jitlog.reader_def")
 GC64 = reader_def.GC64
@@ -147,19 +148,115 @@ local function checkheader(header)
   assert(header.version > 0)
 end
 
+
+
+local testmixins = {
+  readerlib.mixins.msgstats,
+}
+
+local function parselog(log, verbose)
+  local result = readerlib.makereader(testmixins)
+  if verbose then
+    result.verbose = true
+  end
+  assert(result:parse_buffer(log, #log))
+  checkheader(result.header)
+  return result
+end
+
 function tests.header()
   jitlog.start()
+  local result = parselog(jitlog.savetostring())
+  checkheader(result.header)
+end
+
+function tests.savetofile()
+  jitlog.start()
   jitlog.save("jitlog.bin")
-  local result = readerlib.parsefile("jitlog.bin")  
+  local result = readerlib.parsefile("jitlog.bin")
   checkheader(result.header)
 end
 
 function tests.reset()
   jitlog.start()
+  local headersize = jitlog.getsize()
+  jitlog.addmarker("marker")
+  -- Should have grown by at least 10 = 6 chars + 4 byte msg header
+  assert(jitlog.getsize()-headersize >= 10)
+  local log1 = jitlog.savetostring()
+  -- Clear the log and force a new header to be written
   jitlog.reset()
-  jitlog.save("jitlog.bin")
-  local result = readerlib.parsefile("jitlog.bin")  
-  checkheader(result.header)
+  assert(jitlog.getsize() == headersize)
+  local log2 = jitlog.savetostring()
+  assert(#log1 > #log2)
+
+  local result1 = parselog(log1)
+  local result2 = parselog(log2)
+  assert(result1.starttime < result2.starttime)
+end
+
+function tests.stringmarker()
+  jitlog.start()
+  jitlog.addmarker("marker1")
+  jitlog.addmarker("marker2", 0xbeef)
+  local result = parselog(jitlog.savetostring())
+  assert(result.msgcounts.stringmarker == 2)
+  assert(#result.markers == 2)
+  assert(result.markers[1].label == "marker1")
+  assert(result.markers[2].label == "marker2")
+  assert(result.markers[1].eventid < result.markers[2].eventid)
+  assert(result.markers[1].time < result.markers[2].time)
+  assert(result.markers[1].flags == 0)
+  assert(result.markers[2].flags == 0xbeef)
+end
+
+if hasjit then
+
+function tests.tracexits()
+  jitlog.start()
+  local a = 0 
+  for i = 1, 200 do
+    if i <= 100 then
+      a = a + 1
+    end
+  end
+  assert(a == 100)
+  local result = parselog(jitlog.savetostring())
+  assert(result.exits > 4)
+  assert(result.msgcounts.traceexit_small == result.exits)
+end
+
+function tests.userflush()
+  jitlog.start()
+  jit.flush()
+  local result = parselog(jitlog.savetostring())
+  assert(#result.flushes == 1)
+  assert(result.msgcounts.alltraceflush == 1)
+  assert(result.flushes[1].reason == "user_requested")
+  assert(result.flushes[1].time > 0)
+end
+
+end
+
+function tests.gcstate()
+  jitlog.start()
+  collectgarbage("collect")
+  local t = {}
+  for i=1, 10000 do
+    t[i] = {1, 2, true, false}
+  end
+  assert(#t == 10000)
+  local result = parselog(jitlog.savetostring())
+  assert(result.gccount > 0)
+  assert(result.gcstatecount > 4)
+  assert(result.gcstatecount == result.msgcounts.gcstate)
+  assert(result.peakmem > 0)
+  assert(result.peakstrnum > 0)
+  if hasjit then
+    assert(result.exits > 0)
+    assert(result.gcexits > 0)
+    assert(result.gcexits <= result.exits)
+  end
 end
 
 local failed = false

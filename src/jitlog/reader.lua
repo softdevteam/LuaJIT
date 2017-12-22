@@ -10,8 +10,7 @@ local msgsizes = logdef.msgsizes
 
 local base_actions = {}
 
-function base_actions:stringmarker(buff)
-  local msg = ffi.cast("MSG_stringmarker*", buff)
+function base_actions:stringmarker(msg)
   local label = msg:get_label()
   local flags = msg:get_flags()
   local time = msg.time
@@ -24,6 +23,79 @@ function base_actions:stringmarker(buff)
   }
   self.markers[#self.markers + 1] = marker
   self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
+  return marker
+end
+
+function base_actions:traceexit(msg)
+  local id = msg:get_traceid()
+  local exit = msg:get_exit()
+  local gcexit = msg:get_isgcexit()
+  self.exits = self.exits + 1
+  if gcexit then
+    assert(self.gcstate == "atomic" or self.gcstate == "finalize")
+    self.gcexits = self.gcexits + 1
+    self:log_msg("traceexit", "TraceExit(%d): %d GC Triggered", id, exit)
+  else
+    self:log_msg("traceexit", "TraceExit(%d): %d", id, exit)
+  end
+  return id, exit, gcexit
+end
+-- Reuse handler for compact trace exit messages since they both have the same field names but traceid and exit are smaller
+base_actions.traceexit_small = base_actions.traceexit
+
+local flush_reason =  {
+  [0] = "other",
+  "user_requested",
+  "max_mcode",
+  "max_trace",
+  "profiletoggle",
+  "set_builtinmt",
+  "set_immutableuv",
+}
+
+function base_actions:alltraceflush(msg)
+  local reason = msg:get_reason()
+  local flush = {
+    reason = flush_reason[reason],
+    eventid = self.eventid,
+    time = msg.time,
+    maxmcode = msg.mcodelimit,
+    maxtrace = msg.tracelimit,
+  }
+  self.flushes[#self.flushes + 1] = flush
+  self:log_msg("alltraceflush", "TraceFlush: Reason '%s', maxmcode %d, maxtrace %d", flush.reason, msg.mcodelimit, msg.tracelimit)
+  return flush
+end
+
+local gcstates  = {
+  [0] = "pause", 
+  "propagate", 
+  "atomic",
+  "sweepstring", 
+  "sweep", 
+  "finalize",
+}
+
+function base_actions:gcstate(msg)
+  local newstate = msg:get_state()
+  local prevstate = msg:get_prevstate()
+  local oldstate = self.gcstateid
+  self.gcstateid = newstate
+  self.gcstate = gcstates[newstate]
+  self.gcstatecount = self.gcstatecount + 1
+  
+  if oldstate ~= newstate then
+    -- A new GC cycle has only started once we're past the 'pause' GC state 
+    if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
+      self.gccount = self.gccount + 1
+    end
+    self:log_msg("gcstate", "GCState(%s): changed from %s", newstate, oldstate)
+  end
+  
+  self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
+  self.peakstrnum = math.max(self.peakstrnum or 0, msg.strnum)
+  self:log_msg("gcstate", "GCStateStats: MemTotal = %dMB, StrCount = %d", msg.totalmem/(1024*1024), msg.strnum)
+  return self.gcstate, gcstates[prevstate]
 end
 
 local logreader = {}
@@ -65,6 +137,7 @@ function logreader:readheader(buff, buffsize, info)
   info.fixedsize = header.headersize
   info.os = header:get_os()
   info.cpumodel = header:get_cpumodel()
+  info.starttime = header.starttime
   self:log_msg("header", "LogHeader: Version %d, OS %s, CPU %s", info.version, info.os, info.cpumodel)
 
   local file_msgnames = header:get_msgnames()
@@ -149,7 +222,35 @@ end
 
 local function nop() end
 
+local function make_msghandler(msgname, base, funcs)
+  msgname = msgname.."*"
+  -- See if we can go for the simple case with no extra funcs call first
+  if not funcs or (type(funcs) == "table" and #funcs == 0) then
+    return function(self, buff, limit)
+      base(self, ffi.cast(msgname, buff), limit)
+      return
+    end
+  elseif type(funcs) == "function" or #funcs == 1 then
+    local f = (type(funcs) == "function" and funcs) or funcs[1]
+    return function(self, buff, limit)
+      local msg = ffi.cast(msgname, buff)
+      f(self, msg, base(self, msg, limit))
+      return
+    end
+  else
+    return function(self, buff, limit)
+      local msg = ffi.cast(msgname, buff)
+      local ret1, ret2 = base(msg, limit)
+      for _, f in ipairs(funcs) do
+        f(self, msg, ret1, ret2)
+      end
+    end
+  end
+end
+
 function logreader:processheader(header)
+  self.starttime = header.starttime
+
   -- Make the msgtype enum for this file
   local msgtype = {
     names = header.msgnames
@@ -183,18 +284,20 @@ function logreader:processheader(header)
       assert(-size < 4*1024)
     else
       -- Msg size dispatch table is designed to be only 8 bits per slot
-      assert(size < 255)
+      assert(size < 255 and size >= 4)
     end
   end
 
-  local actionfuncs = self.actions or base_actions
-
   -- Map message functions associated with a message name to this files message types
-  local dispatch = table.new(255, 0) 
+  local dispatch = table.new(255, 0)
+  for i = 0, 254 do
+    dispatch[i] = nop
+  end
+  local base_actions = self.base_actions or base_actions
   for i, name in ipairs(header.msgnames) do
-    local action = actionfuncs[name]
-    if action then
-      dispatch[i-1] = action
+    local action = self.actions[name]
+    if base_actions[name] or action then
+      dispatch[i-1] = make_msghandler("MSG_"..name, base_actions[name], action)
     end
   end
   self.dispatch = dispatch
@@ -223,22 +326,93 @@ end
 
 local mt = {__index = logreader}
 
-local function makereader()
+local function applymixin(self, mixin)
+  if mixin.init then
+    mixin.init(self)
+  end
+  if mixin.actions then
+    for name, action in pairs(mixin.actions) do
+      local list = self.actions[name] 
+      if not list then
+        self.actions[name] = {action}
+      else
+        list[#list + 1] = action
+      end
+    end
+  end
+  if mixin.aftermsg then
+    if not self.allmsgcb then
+      self.allmsgcb = mixin.aftermsg
+    else
+      local callback1 = self.allmsgcb
+      local callback2 = mixin.aftermsg
+      self.allmsgcb = function(self, msgtype, size, pos)
+        callback1(self, msgtype, size, pos)
+        callback2(self, msgtype, size, pos)
+      end
+    end
+  end
+end
+
+local msgstats_mixin = {
+  init = function(self)
+    local datatotals = table.new(255, 0)
+    for i = 0, 255 do
+      datatotals[i] = 0
+    end
+    self.datatotals = datatotals
+  
+    local msgcounts = table.new(255, 0)
+    for i = 0, 255 do
+      msgcounts[i] = 0
+    end
+    -- Map message names to an index
+    setmetatable(msgcounts, {__index = function(counts, key)
+      local index = self.msgtype[key]
+      return index and counts[index] 
+    end})
+    self.msgcounts = msgcounts
+  end,
+  aftermsg = function(self, msgtype, size, pos)
+    self.datatotals[msgtype] = self.datatotals[msgtype] + size
+    self.msgcounts[msgtype] = self.msgcounts[msgtype] + 1
+  end,
+}
+
+local builtin_mixins = {
+  msgstats = msgstats_mixin,
+}
+
+local function makereader(mixins)
   local t = {
     eventid = 0,
+    actions = {},
     markers = {},
+    flushes = {},
+    exits = 0,
+    gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
+    gccount = 0, -- number GC full cycles that have been seen in the log
+    gcstatecount = 0, -- number times the gcstate changed
     verbose = false,
     logfilter = {
       --header = true,
       --stringmarker = true,
     }
   }
+  if mixins then
+    for _, mixin in ipairs(mixins) do
+      applymixin(t, mixin)
+    end
+  end
   return setmetatable(t, mt)
 end
 
 local lib = {
   makereader = makereader,
   parsebuffer = function(buff, length)
+    if not length then
+      length = #buff
+    end
     local reader = makereader()
     assert(reader:parse_buffer(buff, length))
     return reader
@@ -248,6 +422,9 @@ local lib = {
     reader:parsefile(filepath)
     return reader
   end,
+  base_actions = base_actions,
+  make_msgparser = make_msgparser,
+  mixins = builtin_mixins,
 }
 
 return lib

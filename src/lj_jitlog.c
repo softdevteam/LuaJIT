@@ -26,6 +26,38 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
+#if LJ_HASJIT
+
+static const uint32_t large_traceid = 1 << 14;
+static const uint32_t large_exitnum = 1 << 9;
+
+static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
+{
+  jit_State *J = G2J(context->g);
+  /* Use a more the compact message if the trace Id is smaller than 16k and the exit smaller than 
+  ** 512 which will fit in the spare 24 bits of a message header.
+  */
+  if (J->parent < large_traceid && J->exitno < large_exitnum) {
+    log_traceexit_small(context->g, exitState->gcexit, J->parent, J->exitno);
+  } else {
+    log_traceexit(context->g, exitState->gcexit, J->parent, J->exitno);
+  }
+}
+
+static void jitlog_traceflush(JITLogState *context, FlushReason reason)
+{
+  jit_State *J = G2J(context->g);
+  log_alltraceflush(context->g, reason, J->param[JIT_P_maxtrace], J->param[JIT_P_maxmcode] << 10);
+}
+
+#endif
+
+static void jitlog_gcstate(JITLogState *context, int newstate)
+{
+  global_State *g = context->g;
+  log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
+}
+
 static void free_context(JITLogState *context);
 
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
@@ -34,6 +66,17 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   JITLogState *context = contextptr;
 
   switch (event) {
+#if LJ_HASJIT
+    case VMEVENT_TRACE_EXIT:
+      jitlog_exit(context, (VMEventData_TExit*)eventdata);
+      break;
+    case VMEVENT_TRACE_FLUSH:
+      jitlog_traceflush(context, (FlushReason)(uintptr_t)eventdata);
+      break;
+#endif
+    case VMEVENT_GC_STATECHANGE:
+      jitlog_gcstate(context, (int)(uintptr_t)eventdata);
+      break;
     case VMEVENT_DETACH:
       free_context(context);
       break;
@@ -248,11 +291,28 @@ static int jlib_save(lua_State *L)
   return 0;
 }
 
+static int jlib_savetostring(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  lua_pushlstring(L, sbufB(&context->eventbuf), sbuflen(&context->eventbuf));
+  return 1;
+}
+
+static int jlib_getsize(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  SBuf *sb = &context->eventbuf;
+  lua_pushnumber(L, sbuflen(sb));
+  return 1;
+}
+
 static const luaL_Reg jitlog_lib[] = {
   {"start", jlib_start},
   {"shutdown", jlib_shutdown},
   {"reset", jlib_reset},
   {"save", jlib_save},
+  {"savetostring", jlib_savetostring},
+  {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
   {NULL, NULL},
 };
