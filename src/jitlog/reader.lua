@@ -294,6 +294,31 @@ function base_actions:gcproto(msg)
   return proto
 end
 
+function base_actions:gcfunc(msg)
+  local address = addrtonum(msg.address)  
+  local upvalues = u64array(msg:get_nupvalues(), msg:get_upvalues())
+  local target = addrtonum(msg.proto_or_cfunc)
+  local func = {
+      owner = self,
+      ffid = msg:get_ffid(),
+      address = address,
+      proto = false,
+      cfunc = false,
+      upvalues = upvalues,
+  }
+  if msg:get_ffid() == 0 then
+    local proto = self.proto_lookup[target]
+    func.proto = proto
+    self:log_msg("gcfunc", "GCFunc(%d): Lua %s, nupvalues %d", address, proto:get_location(), 0)
+  else
+    func.cfunc = target
+    self:log_msg("gcfunc", "GCFunc(%d): %s Func 0x%d nupvalues %d", address, self.enums.fastfuncs[msg:get_ffid()], target, 0)
+  end
+  self.func_lookup[address] = func
+  tinsert(self.functions, func)
+  return func
+end
+
 function base_actions:protoloaded(msg)
   local address = addrtonum(msg.address)
   local created = msg.time
@@ -664,6 +689,8 @@ local function makereader(mixins)
     actions = {},
     markers = {},
     strings = {},
+    functions = {},
+    func_lookup = {},
     protos = {},
     proto_lookup = {},
     flushes = {},

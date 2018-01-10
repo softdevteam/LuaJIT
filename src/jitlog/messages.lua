@@ -141,6 +141,15 @@ local msgs = {
     "totalmem : u32",
     "strnum : u32",
   },
+  
+  {
+    name = "gcfunc",
+    "address : GCRefPtr",
+    "proto_or_cfunc : ptr",
+    "nupvalues : u8",
+    "ffid : u8",
+    { name = "upvalues", length = "nupvalues", type = "u64", argtype = "TValue *" },
+  },
 }
 
 return msgs

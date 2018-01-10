@@ -25,6 +25,8 @@ typedef struct JITLogState {
   uint32_t strcount;
   GCtab *protos;
   uint32_t protocount;
+  GCtab *funcs;
+  uint32_t funccount;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -174,6 +176,30 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
   log_gcproto(context->g, pt, proto_bc(pt), proto_bc(pt), mref(pt->k, GCRef),  lineinfo, linesize, proto_varinfo(pt), (uint32_t)vinfosz);
 }
 
+static void memorize_func(JITLogState *context, GCfunc *fn)
+{
+  lua_State *L = mainthread(context->g);
+  TValue key;
+  setfuncV(L, &key, fn);
+
+  if (!memorize_gcref(L, context->funcs, &key, &context->funccount)) {
+    return;
+  }
+
+  if (isluafunc(fn)) {
+    memorize_proto(context, funcproto(fn));
+
+    int i;
+    TValue *upvalues = lj_mem_newvec(L, fn->l.nupvalues, TValue);
+    for(i = 0; i != fn->l.nupvalues; i++) {
+      upvalues[i] = *uvval(&gcref(fn->l.uvptr[i])->uv);
+    }
+    log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
+  } else {
+    log_gcfunc(context->g, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
+  }
+}
+
 #if LJ_HASJIT
 
 static const uint32_t large_traceid = 1 << 14;
@@ -302,6 +328,13 @@ static const char *const bc_names[] = {
   #undef BCNAME
 };
 
+static const char *const fastfunc_names[] = {
+  "Lua",
+  "C",
+  #define FFDEF(name)   #name,
+  #include "lj_ffdef.h"
+  #undef FFDEF
+};
 #define write_enum(context, name, strarray) write_enumdef(context, name, strarray, (sizeof(strarray)/sizeof(strarray[0])), 0)
 
 static void write_header(JITLogState *context)
@@ -318,6 +351,7 @@ static void write_header(JITLogState *context)
   write_enum(context, "gcstate", gcstates);
   write_enum(context, "flushreason", flushreason);
   write_enum(context, "bc", bc_names);
+  write_enum(context, "fastfuncs", fastfunc_names);
 }
 
 static int jitlog_isrunning(lua_State *L)
@@ -341,6 +375,7 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context->g = G(L);
   context->strings = create_pinnedtab(L);
   context->protos = create_pinnedtab(L);
+  context->funcs = create_pinnedtab(L);
 
   MSize total = G(L)->gc.total;
   SBuf *sb = &context->eventbuf;
@@ -384,6 +419,7 @@ static void jitlog_shutdown(JITLogState *context)
 
   free_pinnedtab(L, context->strings);
   free_pinnedtab(L, context->protos);
+  free_pinnedtab(L, context->funcs);
   free_context(context);
 }
 
@@ -398,8 +434,10 @@ LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
   JITLogState *context = usr2ctx(usrcontext);
   context->strcount = 0;
   context->protocount = 0;
+  context->funccount = 0;
   lj_tab_clear(context->strings);
   lj_tab_clear(context->protos);
+  lj_tab_clear(context->funcs);
   lj_buf_reset(&context->eventbuf);
   write_header(context);
 }
