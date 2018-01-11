@@ -635,8 +635,9 @@ function generator:write_logfunc(def)
       argtype = f.argtype or typedef.argtype
     end
 
-    --Don't generate a function arg for fields that have implict values
-    if not typedef.noarg and not f.noarg and not f.lengthof then
+    -- Don't generate a function arg for fields that have implicit values. Also group arrays fields with
+    -- their length field in the parameter list.
+    if not typedef.noarg and not f.noarg and (not f.lengthof or def.fieldlookup[f.lengthof].noarg) then
       assert(not f.value_name and not f.struct_field)
       
       table.insert(args, format("%s %s", (argtype or typename), f.name))
