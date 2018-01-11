@@ -56,6 +56,9 @@ static const uint32_t large_exitnum = 1 << 9;
 static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
 {
   jit_State *J = G2J(context->g);
+  if (context->user.logfilter & LOGFILTER_TRACE_EXITS) {
+    return;
+  }
   /* Use a more the compact message if the trace Id is smaller than 16k and the exit smaller than 
   ** 512 which will fit in the spare 24 bits of a message header.
   */
@@ -77,6 +80,9 @@ static void jitlog_traceflush(JITLogState *context, FlushReason reason)
 static void jitlog_gcstate(JITLogState *context, int newstate)
 {
   global_State *g = context->g;
+  if (context->user.logfilter & LOGFILTER_GC_STATE) {
+    return;
+  }
   log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
 }
 
