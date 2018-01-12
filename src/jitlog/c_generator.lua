@@ -37,7 +37,7 @@ static const int32_t msgsizes[{{count}}] = {
   struct = [[
 typedef struct MSG_{{name}}{
   {{fields}}
-} MSG_{{name}};
+}LJ_PACKED MSG_{{name}};
 
 {{bitfields:%s\n}}
 ]],
@@ -104,7 +104,12 @@ function generator:writefile(options)
   self:write_headerguard("timerdef")
   self:write([[#include <stdio.h>
 
-#pragma pack(push, 1)
+#ifdef _MSC_VER
+  #define LJ_PACKED
+  #pragma pack(push, 1)
+#else
+  #define LJ_PACKED __attribute__((packed))
+#endif
 
 ]])
 
@@ -115,7 +120,14 @@ function generator:writefile(options)
 
   self:write_msgdefs()
   
-  self:write("#pragma pack(pop)\n#endif\n")
+  self:write([[
+#ifdef _MSC_VER
+  #pragma pack(pop)
+#endif
+
+#endif
+]])
+  
 end
 
 return generator

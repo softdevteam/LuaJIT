@@ -236,6 +236,83 @@ function tests.userflush()
   assert(result.flushes[1].time > 0)
 end
 
+function tests.trace()
+  jitlog.start()
+  local a = 0 
+  for i = 1, 300 do
+    if i >= 100 then
+      if i <= 200 then
+        a = a + 1
+      else
+        a = a + 2
+      end
+    end
+  end
+  assert(a == 301)
+  
+  local result = parselog(jitlog.savetostring())
+  assert(result.exits > 0)
+  assert(#result.aborts == 0)
+  local traces = result.traces
+  assert(#traces == 3)
+  assert(traces[1].eventid < traces[2].eventid)
+  assert(traces[1].startpt == traces[1].stoppt)
+  assert(traces[2].startpt == traces[2].stoppt)
+  assert(traces[3].startpt == traces[3].stoppt)
+  assert(traces[1].startpt == traces[2].startpt and traces[2].startpt == traces[3].startpt)
+  assert(traces[1].startpt.chunk:find("test.lua"))
+  assert(traces[1].stopfunc == traces[2].stopfunc)
+  assert(traces[1].stopfunc.proto == traces[1].stoppt)
+  assert(traces[1].stopfunc.upvalues.length > 0)
+  -- Root traces should have no parent
+  assert(traces[1].parentid == 0)
+  assert(traces[2].parentid == traces[1].id)
+  assert(traces[3].parentid == traces[2].id)
+  assert(traces[1].id ~= traces[2].id and traces[2].id ~= traces[3].id)
+end
+
+local function nojit_loop(f, n)
+  local ret
+  n = n or 200
+  for i=1, n do
+    ret = f()
+  end
+  return ret
+end
+
+jit.off(nojit_loop)
+
+function tests.protobl()
+  jitlog.start()
+  local ret1 = function() return 1 end
+  jit.off(ret1)
+  local func = function() return ret1() end
+  nojit_loop(func, 100000)
+  -- Check we also handle loop blacklisting
+  local function loopbl()
+    local ret
+    for i=1, 50000 do
+      ret = ret1()
+    end
+    return ret
+  end
+  loopbl()
+
+  local result = parselog(jitlog.savetostring())
+  assert(#result.aborts >= 2)
+  local blacklist = result.proto_blacklist 
+  assert(#blacklist == 2)
+  assert(blacklist[1].eventid < blacklist[2].eventid)
+  assert(blacklist[1].time < blacklist[2].time)
+  -- Function header blacklisted
+  assert(blacklist[1].bcindex == 0)
+  -- Loop header blacklisted
+  assert(blacklist[2].bcindex > 0)
+  assert(blacklist[1].proto ~= blacklist[2].proto)
+  assert(blacklist[1].proto.chunk:find("test.lua"))
+  assert(blacklist[2].proto.chunk:find("test.lua"))
+end
+
 end
 
 function tests.gcstate()
@@ -258,6 +335,49 @@ function tests.gcstate()
     assert(result.gcexits <= result.exits)
   end
 end
+
+function tests.proto()
+  jitlog.start()
+  loadstring("return 1")
+  loadstring("\nreturn 1, 2")
+  local result = parselog(jitlog.savetostring())
+  checkheader(result.header)
+  assert(#result.protos == 2)
+  
+  local pt1, pt2 = result.protos[1], result.protos[2]  
+  assert(pt1.firstline == 0)
+  assert(pt2.firstline == 0)
+  assert(pt1.numline == 1)
+  assert(pt2.numline == 2)
+  assert(pt1.chunk == "return 1")
+  assert(pt2.chunk == "\nreturn 1, 2")
+  assert(pt1.bclen == 3)
+  assert(pt2.bclen == 4)
+  -- Top level chunks are vararg
+  assert(pt1:get_bcop(0) == "FUNCV")
+  assert(pt2:get_bcop(0) == "FUNCV")
+  assert(pt1:get_bcop(pt1.bclen-1) == "RET1")
+  assert(pt2:get_bcop(pt2.bclen-1) == "RET")
+  for i = 1, pt1.bclen-1 do
+    assert(pt1:get_linenumber(i) == 1)
+  end
+  for i = 1, pt2.bclen-1 do
+    assert(pt2:get_linenumber(i) == 2)
+  end
+end
+
+function tests.protoloaded()
+  jitlog.start()
+  loadstring("return 1")
+  loadstring("\nreturn 2")
+  local result = parselog(jitlog.savetostring())
+  assert(#result.protos == 2)
+  assert(result.protos[1].created)
+  assert(result.protos[2].created > result.protos[1].created)
+  assert(result.protos[2].createdid > result.protos[1].createdid)
+end
+
+
 
 local failed = false
 

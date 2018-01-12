@@ -1,12 +1,171 @@
 local ffi = require"ffi"
 require("table.new")
 local format = string.format
+local tinsert = table.insert
 local band = bit.band
+local rshift = bit.rshift
 
 local logdef = require("jitlog.reader_def")
 local MsgType = logdef.MsgType
 local msgnames = MsgType.names
 local msgsizes = logdef.msgsizes
+
+local enum_mt = {
+  __index = function(self, key)
+    if type(key) == "number" then
+      local result = self.names[key+1]
+      if not result then
+        error(format("No name exists for enum index %d max is %d", key, #self.names))
+      end
+      return result
+    end
+  end,
+  __len = function(self) return #self.names end
+}
+
+local function make_enum(names)
+  local t = setmetatable({}, enum_mt)
+  for i, name in ipairs(names) do
+    assert(name ~= "names")
+    t[name] = i-1
+  end
+  t.names = names
+  return t
+end
+
+ffi.cdef[[
+typedef struct array_u8 {
+  int length;
+  uint8_t array[?];
+} array_u8;
+
+typedef struct array_u16 {
+  int length;
+  uint16_t array[?];
+} array_u16;
+
+typedef struct array_u32 {
+  int length;
+  uint32_t array[?];
+} array_u32;
+
+typedef struct protobc {
+  int length;
+  int32_t bc[?];
+} protobc;
+
+typedef struct array_u64 {
+  int length;
+  uint64_t array[?];
+} array_u64;
+]]
+
+local function array_index(self, index)
+  assert(index >= 0 and index < self.length)
+  return self.array[index]
+end
+
+local function make_arraynew()
+  local empty_array 
+  return function(ct, count, src)
+    if count == 0 then
+      if not empty_array then
+        empty_array = ffi.new(ct, 0, 0)
+      end
+      return empty_array
+    end
+    local result = ffi.new(ct, count, count)
+    if src then
+      result:copyfrom(src, count)
+    end
+    return result
+  end
+end
+
+ffi.metatype("array_u8", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count)
+    end,
+  }
+})
+
+ffi.metatype("array_u16", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 2)
+    end,
+  }
+})
+
+ffi.metatype("array_u32", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 4)
+    end,
+  }
+})
+
+local u64array =  ffi.metatype("array_u64", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 8)
+    end,
+  }
+})
+
+local u8array = ffi.typeof("array_u8")
+local u16array = ffi.typeof("array_u16")
+local u32array = ffi.typeof("array_u32")
+local u64array = ffi.typeof("array_u64")
+
+local protobc = ffi.metatype("protobc", {
+  __new = function(ct, count, src)
+    local result = ffi.new(ct, count, count)
+    ffi.copy(result.bc, src, count * 4)
+    return result
+  end,
+  __index = {
+    -- Returns just the opcode of the bytecode at the specified index
+    getop = function(self, index)
+      assert(index >= 0 and index < self.length)
+      return band(self.bc[index], 0xff)
+    end,
+    
+    findop = function(self, op)
+      for i = 0, self.length-1 do
+        if band(self.bc[index], 0xff) == op then
+          return i
+        end
+        return -1
+      end
+    end,
+    -- Returns the opcode and the a, b, c, d operand fields of the bytecode at the specified index
+    -- See http://wiki.luajit.org/Bytecode-2.0#introduction
+    getbc = function(self, index)
+      assert(index >= 0 and index < self.length)
+      local bc = self.bc[index]
+      return band(bc, 0xff), band(rshift(bc, 8), 0xff), band(rshift(bc, 24), 0xff), band(rshift(bc, 16), 0xff), band(rshift(bc, 16), 0xffff)
+    end,
+  }
+})
+
+-- Just mask to the lower 48 bits that will fit in to a double
+local function addrtonum(address)
+  return (tonumber(bit.band(address, 0xffffffffffffULL)))
+end
 
 local base_actions = {}
 
@@ -21,9 +180,185 @@ function base_actions:stringmarker(msg)
     flags = flags,
     type = "string"
   }
-  self.markers[#self.markers + 1] = marker
+  tinsert(self.markers, marker)
   self:log_msg("stringmarker", "StringMarker: %s %s", label, time)
   return marker
+end
+
+function base_actions:enumdef(msg)
+  local name = msg:get_name()
+  local names = msg:get_valuenames()
+  self.enums[name] = make_enum(names)
+  self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
+  return name, names
+end
+
+function base_actions:gcstring(msg)
+  local string = msg:get_data()
+  local address = addrtonum(msg.address)
+  self.strings[address] = string
+  self:log_msg("gcstring", "GCstring: %s, %s", address, string)
+  return string, address
+end
+
+local gcproto = {}
+
+function gcproto:get_location()
+  return (format("%s:%d", self.chunk, self.firstline))
+end
+
+function gcproto:get_linenumber(bcidx)
+  -- There is never any line info for the first bytecode so use the firstline
+  if bcidx == 0 then
+    return self.firstline
+  end
+  return self.firstline + self.lineinfo:get(bcidx-1)
+end
+
+function gcproto:dumpbc()
+  local currline = -1
+  local lineinfo = self.lineinfo
+  local bcnames = self.owner.enums.bc
+  
+  for i = 0, self.bclen-1 do
+    if lineinfo.array[i] ~= currline then
+      currline = lineinfo.array[i]
+      print(format("%s:%d", self.chunk or "?", self.firstline + lineinfo.array[i]))
+    end
+    local op, a, b, c, d = self.bc:getbc(i)
+    print(format(" %s, %d, %d, %d, %d", bcnames[op+1], a, b, c, d))
+  end
+end
+
+function gcproto:get_bcop(index)
+  return (self.owner.enums.bc[self.bc:getop(index)])
+end
+
+function gcproto:get_rawbc(index)
+  return (self.bc:getbc(index))
+end
+
+local proto_mt = {__index = gcproto}
+
+local nullarray = {0}
+local nobc = ffi.new("protobc", 0, 1, nullarray)
+local nolineinfo = ffi.new("array_u8", 0, 1)
+
+function base_actions:gcproto(msg)
+  local address = addrtonum(msg.address)
+  local chunk = self.strings[addrtonum(msg.chunkname)]
+  local proto = {
+    owner = self,
+    chunk = chunk, 
+    firstline = msg.firstline, 
+    numline = msg.numline,
+    bclen = msg.bclen,
+    bcaddr = addrtonum(msg.bcaddr),
+    address = address,
+  }
+  setmetatable(proto, proto_mt)
+  proto.hotslot = band(rshift(proto.bcaddr, 2), 64-1)
+  self.proto_lookup[address] = proto
+  
+  local bclen = proto.bclen
+  local bcarray
+  if bclen > 0 then
+    bcarray = protobc(bclen, msg:get_bc())
+  else
+    bcarray = nobc
+  end
+  proto.bc = bcarray
+
+  local lineinfo, lisize
+  if bclen == 0 or msg.lineinfosize == 0 then
+    -- We won't have any line info for internal functions or if the debug info is stripped
+    lineinfo = nolineinfo
+  elseif proto.numline < 255 then
+    lisize = 1
+    lineinfo = u8array(bclen)
+  elseif proto.numline < 0xffff then
+    lisize = 2
+    lineinfo = u16array(bclen)
+  else
+    lisize = 4
+    lineinfo = u32array(bclen)
+  end
+  if lineinfo ~= nolineinfo then
+    assert(msg.lineinfosize == bclen * lisize)
+    lineinfo:copyfrom(msg:get_lineinfo())
+  end
+  proto.lineinfo = lineinfo
+
+  tinsert(self.protos, proto)
+  self:log_msg("gcproto", "GCproto(%d): %s, hotslot %d", address, proto:get_location(), proto.hotslot)
+  return proto
+end
+
+function base_actions:gcfunc(msg)
+  local address = addrtonum(msg.address)  
+  local upvalues = u64array(msg:get_nupvalues(), msg:get_upvalues())
+  local target = addrtonum(msg.proto_or_cfunc)
+  local func = {
+      owner = self,
+      ffid = msg:get_ffid(),
+      address = address,
+      proto = false,
+      cfunc = false,
+      upvalues = upvalues,
+  }
+  if msg:get_ffid() == 0 then
+    local proto = self.proto_lookup[target]
+    func.proto = proto
+    self:log_msg("gcfunc", "GCFunc(%d): Lua %s, nupvalues %d", address, proto:get_location(), 0)
+  else
+    func.cfunc = target
+    self:log_msg("gcfunc", "GCFunc(%d): %s Func 0x%d nupvalues %d", address, self.enums.fastfuncs[msg:get_ffid()], target, 0)
+  end
+  self.func_lookup[address] = func
+  tinsert(self.functions, func)
+  return func
+end
+
+function base_actions:protoloaded(msg)
+  local address = addrtonum(msg.address)
+  local created = msg.time
+  local proto = self.proto_lookup[address]
+  if proto then
+    proto.created = created
+    proto.createdid = self.eventid
+  end
+  self:log_msg("gcproto", "GCproto(%d): created %s", address, created)
+  return address, proto
+end
+
+function base_actions:trace(msg)
+  local id = msg:get_id()
+  local aborted = msg:get_aborted()
+  local startpt = self.proto_lookup[addrtonum(msg.startpt)]
+  local stoppt = self.proto_lookup[addrtonum(msg.stoppt)]
+  local trace = {
+    owner = self,
+    eventid = self.eventid,
+    id = id,
+    rootid = msg.root,
+    parentid = msg.parentid,
+    startpt = startpt,
+    startpc = msg.startpc,
+    stoppt = stoppt,
+    stoppc = msg.stoppc,
+    link = msg.link,
+    stopfunc = self.func_lookup[addrtonum(msg.stopfunc)],
+    stitched = msg:get_stitched()
+  }
+  if aborted then
+    trace.abortcode = msg.abortcode
+    tinsert(self.aborts, trace)
+    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s\n stop= %s", id, msg.abortcode, msg.parentid, startpt:get_location(), stoppt:get_location())
+  else
+    tinsert(self.traces, trace)
+    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
+  end
+  return trace
 end
 
 function base_actions:traceexit(msg)
@@ -42,6 +377,24 @@ function base_actions:traceexit(msg)
 end
 -- Reuse handler for compact trace exit messages since they both have the same field names but traceid and exit are smaller
 base_actions.traceexit_small = base_actions.traceexit
+
+function base_actions:protobl(msg)
+  local address = addrtonum(msg.proto)
+  local proto = self.proto_lookup[address]
+  local blacklist = {
+    eventid = self.eventid,
+    proto = proto,
+    bcindex = msg:get_bcindex(),
+    time = msg.time,
+  }
+  -- Record the first blacklist event the proto gets in the proto
+  if not proto.blacklisted then
+    proto.blacklisted = blacklist
+  end
+  tinsert(self.proto_blacklist, blacklist)
+  self:log_msg("protobl", "ProtoBlacklisted(%d): %s", address, proto:get_location())
+  return blacklist
+end
 
 local flush_reason =  {
   [0] = "other",
@@ -62,7 +415,7 @@ function base_actions:alltraceflush(msg)
     maxmcode = msg.mcodelimit,
     maxtrace = msg.tracelimit,
   }
-  self.flushes[#self.flushes + 1] = flush
+  tinsert(self.flushes, flush)
   self:log_msg("alltraceflush", "TraceFlush: Reason '%s', maxmcode %d, maxtrace %d", flush.reason, msg.mcodelimit, msg.tracelimit)
   return flush
 end
@@ -227,19 +580,23 @@ local function make_msghandler(msgname, base, funcs)
   -- See if we can go for the simple case with no extra funcs call first
   if not funcs or (type(funcs) == "table" and #funcs == 0) then
     return function(self, buff, limit)
-      base(self, ffi.cast(msgname, buff), limit)
+      local msg = ffi.cast(msgname, buff)
+      msg:check(limit)
+      base(self, msg, limit)
       return
     end
   elseif type(funcs) == "function" or #funcs == 1 then
     local f = (type(funcs) == "function" and funcs) or funcs[1]
     return function(self, buff, limit)
       local msg = ffi.cast(msgname, buff)
+      msg:check(limit)
       f(self, msg, base(self, msg, limit))
       return
     end
   else
     return function(self, buff, limit)
       local msg = ffi.cast(msgname, buff)
+      msg:check(limit)
       local ret1, ret2 = base(msg, limit)
       for _, f in ipairs(funcs) do
         f(self, msg, ret1, ret2)
@@ -252,14 +609,9 @@ function logreader:processheader(header)
   self.starttime = header.starttime
 
   -- Make the msgtype enum for this file
-  local msgtype = {
-    names = header.msgnames
-  } 
+  local msgtype = make_enum(header.msgnames)
   self.msgtype = msgtype
   self.msgnames = header.msgnames
-  for i, name in ipairs(header.msgnames) do
-    msgtype[name] = i-1
-  end
   
   for _, name in ipairs(msgnames) do
     if not msgtype[name] and name ~= "MAX" then
@@ -336,7 +688,7 @@ local function applymixin(self, mixin)
       if not list then
         self.actions[name] = {action}
       else
-        list[#list + 1] = action
+        tinsert(list, action)
       end
     end
   end
@@ -388,11 +740,20 @@ local function makereader(mixins)
     eventid = 0,
     actions = {},
     markers = {},
+    strings = {},
+    functions = {},
+    func_lookup = {},
+    protos = {},
+    proto_lookup = {},
+    proto_blacklist = {},
     flushes = {},
+    traces = {},
+    aborts = {},
     exits = 0,
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
+    enums = {},
     verbose = false,
     logfilter = {
       --header = true,
