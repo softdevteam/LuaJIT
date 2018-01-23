@@ -138,6 +138,7 @@ local msgs = {
     { name = "ir", length = "irlen", type = "u64", argtype = "IRIns *" },
     "snapshots : u64[nsnap]",
     "snapmap : u32[nsnapmap]",
+    "tracetime : u64",
 
     structcopy = {
       fields = {

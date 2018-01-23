@@ -232,6 +232,7 @@ static void jitlog_tracestart(JITLogState *context, GCtrace *T)
   context->startfunc = J->fn;
   context->lastfunc = context->lastlua = J->fn;
   context->lastpc = proto_bcpos(J->pt, J->pc);
+  J->tracetime = 0;
 }
 
 static int isstitched(JITLogState *context, GCtrace *T)
@@ -270,7 +271,7 @@ static void jitlog_writetrace(JITLogState *context, GCtrace *T, int abort)
     irsize = (T->nins - T->nk) + 1;
   }
 
-  log_trace(context->g, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, mcodesize, T->ir + T->nk, irsize);
+  log_trace(context->g, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, mcodesize, T->ir + T->nk, irsize, J->tracetime);
 }
 
 static void jitlog_tracestop(JITLogState *context, GCtrace *T)
