@@ -421,6 +421,34 @@ static int getcpumodel(char *model)
   return (int)strnlen((char*)model, 12 * 4);
 }
 
+typedef struct CPUIDResult {
+  uint32_t eax;
+  uint32_t ebx;
+  uint32_t ecx;
+  uint32_t edx;
+} CPUIDResult;
+
+LJ_STATIC_ASSERT(sizeof(CPUIDResult) == 16);
+
+static uint64_t gettscfreq()
+{
+  CPUIDResult result = {0};
+  lj_vm_cpuid(0x15, (uint32_t*)(&result));
+
+  /* If EBX[31:0] is 0, the TSC/”core crystal clock” ratio is not enumerated */
+  if (result.ebx == 0) {
+    return 0;
+  }
+
+  uint64_t corecrystalfrequency = 24000000;
+  /* Skylake of newer  */
+  if (1) {
+    corecrystalfrequency = 24000000;
+  }
+
+  return (corecrystalfrequency * result.ebx)/ result.eax;;
+}
+
 #else
 
 static int getcpumodel(char *model)
@@ -507,6 +535,7 @@ static void write_header(JITLogState *context)
   lua_State *L = mainthread(context->g);
   char cpumodel[64] = {0};
   int model_length = getcpumodel(cpumodel);
+  gettscfreq();
   SBuf sb;
   lj_buf_init(L, &sb);
   bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
