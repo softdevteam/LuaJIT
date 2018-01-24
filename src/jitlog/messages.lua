@@ -139,6 +139,7 @@ local msgs = {
     "snapshots : u64[nsnap]",
     "snapmap : u32[nsnapmap]",
     "tracetime : u64",
+    "traceduration : u64",
 
     structcopy = {
       fields = {

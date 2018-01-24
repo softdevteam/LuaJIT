@@ -34,6 +34,7 @@ typedef struct JITLogState {
   GCfunc *lastlua;
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
+  uint64_t trace_start;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -232,7 +233,9 @@ static void jitlog_tracestart(JITLogState *context, GCtrace *T)
   context->startfunc = J->fn;
   context->lastfunc = context->lastlua = J->fn;
   context->lastpc = proto_bcpos(J->pt, J->pc);
+  context->trace_start = __rdtsc();
   J->tracetime = 0;
+
 }
 
 static int isstitched(JITLogState *context, GCtrace *T)
@@ -249,6 +252,7 @@ static int isstitched(JITLogState *context, GCtrace *T)
 static void jitlog_writetrace(JITLogState *context, GCtrace *T, int abort)
 {
   jit_State *J = G2J(context->g);
+  uint64_t duration = __rdtsc() - context->trace_start;
   GCproto *startpt = &gcref(T->startpt)->pt;
   BCPos startpc = proto_bcpos(startpt, mref(T->startpc, const BCIns));
   BCPos stoppc;
@@ -271,7 +275,8 @@ static void jitlog_writetrace(JITLogState *context, GCtrace *T, int abort)
     irsize = (T->nins - T->nk) + 1;
   }
 
-  log_trace(context->g, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, mcodesize, T->ir + T->nk, irsize, J->tracetime);
+  log_trace(context->g, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, 
+            mcodesize, T->ir + T->nk, irsize, J->tracetime, duration);
 }
 
 static void jitlog_tracestop(JITLogState *context, GCtrace *T)
