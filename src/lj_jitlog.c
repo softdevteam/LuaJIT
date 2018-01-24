@@ -203,6 +203,7 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
       upvalues[i] = *uvval(&gcref(fn->l.uvptr[i])->uv);
     }
     log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
+    lj_mem_freevec(context->g, upvalues, fn->l.nupvalues, TValue);
   } else {
     log_gcfunc(context->g, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
   }
