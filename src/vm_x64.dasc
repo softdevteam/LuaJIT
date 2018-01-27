@@ -322,13 +322,27 @@
 |
 |// Decrement hashed hotcount and trigger trace recorder if zero.
 |.macro hotloop, reg
+|.if 1
+|  mov reg, PCd
+|  sub word [PCd+2], HOTCOUNT_LOOP
+|  jb ->vm_hotloop
+|.else
+|  mov reg, PCd
+|  shr reg, 1
+|  and reg, HOTCOUNT_PCMASK
+|  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_LOOP
+|  jb ->vm_hotloop
+|.endif
+|.endmacro
+|
+|.macro hotloop_ht, reg
 |  mov reg, PCd
 |  shr reg, 1
 |  and reg, HOTCOUNT_PCMASK
 |  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_LOOP
 |  jb ->vm_hotloop
 |.endmacro
-|
+
 |.macro hotcall, reg
 |  mov reg, PCd
 |  sub word [PCd-6], HOTCOUNT_CALL
