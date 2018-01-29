@@ -415,7 +415,7 @@
 |.macro hotloop, reg
 |.if 1
 |  mov reg, PC
-|  sub word [PC+2], HOTCOUNT_LOOP
+|  sub word [PC+2], 1
 |  jb ->vm_hotloop
 |.else
 |  mov reg, PC
@@ -436,7 +436,7 @@
 |
 |.macro hotcall, reg
 |  mov reg, PC
-|  sub word [PC-6], HOTCOUNT_CALL
+|  sub word [PC-6], 1
 |  jb ->vm_hotcall
 |.endmacro
 |

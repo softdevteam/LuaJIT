@@ -404,8 +404,8 @@ setpenalty:
   if (proto_bcpos(pt, pc) == 0) {
     pt->hotcount = val;
   } else {
-    lua_assert(val == PENALTY_MIN || val > (pc[1] >> 16));
-    pc[1] = (pc[1] & 0xffff) | (val << 16);
+    lua_assert(val == PENALTY_MIN || val > hotcount_loop_get(pc));
+    hotcount_loop_set(pc, val);
   }
 }
 
@@ -742,14 +742,14 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, BCIns *pc)
   /* Note: pc is the interpreter bytecode PC here. It's offset by 1. */
   ERRNO_SAVE
     /* Reset hotcount. */
-  uint16_t newcount = J->param[JIT_P_hotloop]*HOTCOUNT_LOOP;
   if (bc_op(pc[-1]) >= BC_FUNCF && bc_op(pc[-1]) <= BC_JFUNCV) {
     GCproto *pt = (GCproto *)(((char *)(pc-1)) - sizeof(GCproto));
     lua_assert(pt->hotcount == 0xffff);
-    pt->hotcount = newcount;
+    pt->hotcount = J->param[JIT_P_hotfunc];
   } else {
-    lua_assert((pc[0] >> 16) >= 0xfffe);
-    pc[0] = (pc[0] & 0xffff) | (newcount << 16);
+    BCIns *loop = pc-1;
+    lua_assert(hotcount_loop_get(loop) == 0xffff);
+    hotcount_loop_set(loop, J->param[JIT_P_hotloop]);
   }
   
   /* Only start a new trace if not recording or inside __gc call or vmevent. */

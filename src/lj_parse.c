@@ -1576,7 +1576,7 @@ static GCproto *fs_finish(LexState *ls, BCLine line)
   pt->framesize = fs->framesize;
   setgcref(pt->chunkname, obj2gco(ls->chunkname));
 #if LJ_HASJIT
-  pt->hotcount = L2J(ls->L)->param[JIT_P_hotloop]*HOTCOUNT_LOOP - 1;
+  pt->hotcount = L2J(ls->L)->param[JIT_P_hotfunc];
 #endif
 
   /* Close potentially uninitialized gap between bc and kgc. */
@@ -2352,7 +2352,7 @@ static void parse_break(LexState *ls)
 
 static void emit_loophotcount(FuncState *fs)
 {
-  bcemit_AD(fs, BC_LOOPHC, 0, L2J(fs->L)->param[JIT_P_hotloop]*HOTCOUNT_LOOP - 1);
+  bcemit_AD(fs, BC_LOOPHC, 0, L2J(fs->L)->param[JIT_P_hotloop]);
 }
 
 /* Parse 'goto' statement. */

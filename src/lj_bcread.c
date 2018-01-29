@@ -384,7 +384,7 @@ GCproto *lj_bcread_proto(LexState *ls)
     setmref(pt->varinfo, NULL);
   }
 #if LJ_HASJIT
-  pt->hotcount = L2J(ls->L)->param[JIT_P_hotloop]*HOTCOUNT_LOOP - 1;
+  pt->hotcount = L2J(ls->L)->param[JIT_P_hotfunc];
 #endif
   return pt;
 }
