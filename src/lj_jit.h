@@ -105,7 +105,7 @@
   _(\011, minstitch,	0)	/* Min. # of IR ins for a stitched trace. */ \
   \
   _(\007, hotloop,	56)	/* # of iter. to detect a hot loop. */ \
-  _(\007, hotfunc,	56)	/* # of iter. to detect a hot function. */ \
+  _(\007, hotfunc,	56*2)	/* # of iter. to detect a hot function. */ \
   _(\007, hotexit,	10)	/* # of taken exits to start a side trace. */ \
   _(\007, tryside,	4)	/* # of attempts to compile a side trace. */ \
   \
