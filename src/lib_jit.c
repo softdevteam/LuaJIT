@@ -141,6 +141,17 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
+LJLIB_CF(jit_prngstate)
+{
+  jit_State *J = L2J(L);
+  int32_t cur = (int32_t)J->prngstate;
+  if (L->base < L->top && !tvisnil(L->base)) {
+    J->prngstate = (uint32_t)lj_lib_checkint(L, 1);
+  }
+  setintV(L->top++, cur);
+  return 1;
+}
+
 LJLIB_PUSH(top-5) LJLIB_SET(os)
 LJLIB_PUSH(top-4) LJLIB_SET(arch)
 LJLIB_PUSH(top-3) LJLIB_SET(version_num)
@@ -224,6 +235,7 @@ LJLIB_CF(jit_util_funcbc)
 {
   GCproto *pt = check_Lproto(L, 0);
   BCPos pc = (BCPos)lj_lib_checkint(L, 2);
+  int lineinfo = lj_lib_optint(L, 3, 0);
   if (pc < pt->sizebc) {
     BCIns ins = proto_bc(pt)[pc];
     BCOp op = bc_op(ins);
@@ -231,6 +243,11 @@ LJLIB_CF(jit_util_funcbc)
     setintV(L->top, ins);
     setintV(L->top+1, lj_bc_mode[op]);
     L->top += 2;
+    if (lineinfo) {
+      setintV(L->top, lj_debug_line(pt, pc));
+      L->top += 1;
+      return 3;
+    }
     return 2;
   }
   return 0;

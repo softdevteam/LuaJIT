@@ -410,6 +410,9 @@ static void trace_start(jit_State *J)
 {
   lua_State *L;
   TraceNo traceno;
+#ifdef LUA_USE_TRACE_LOGS
+  const BCIns *pc = J->pc;
+#endif
 
   if ((J->pt->flags & PROTO_NOJIT)) {  /* JIT disabled for this proto? */
     if (J->parent == 0 && J->exitno == 0) {
@@ -468,6 +471,9 @@ static void trace_start(jit_State *J)
     }
   );
   lj_record_setup(J);
+#ifdef LUA_USE_TRACE_LOGS
+  lj_log_trace_start_record(L, (unsigned) J->cur.traceno, pc, J->fn);
+#endif
 }
 
 /* Stop tracing. */
@@ -886,6 +892,20 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   pc = exd.pc;
   cf = cframe_raw(L->cframe);
   setcframe_pc(cf, pc);
+
+#ifdef LUA_USE_ASSERT
+  /*
+  ** DEBUGGING: Check GC objects in current stack.
+  ** NOTE: THIS IS EXPENSIVE -- DON'T LEAVE PERMANENTLY ENABLED!
+  */
+  {
+    TValue *o, *top = L->top;
+    for (o = tvref(L->stack)+1; o < top; o++) {
+      tvchecklive(L, o);
+    }
+  }
+#endif
+
   if (LJ_HASPROFILE && (G(L)->hookmask & HOOK_PROFILE)) {
     /* Just exit to interpreter. */
   } else if (G(L)->gc.state == GCSatomic || G(L)->gc.state == GCSfinalize) {
@@ -908,6 +928,9 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
       }
     }
   }
+#ifdef LUA_USE_TRACE_LOGS
+  lj_log_trace_normal_exit(L, (int) T->traceno, pc);
+#endif
   /* Return MULTRES or 0. */
   ERRNO_RESTORE
   switch (bc_op(*pc)) {
