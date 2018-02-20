@@ -44,8 +44,10 @@ if exist minilua.exe.manifest^
 @shift
 @set DASC=vm_x64.dasc
 @set LJCOMPILE=%LJCOMPILE% /DLUAJIT_ENABLE_GC64
+@set GC64=GC64
 :NOGC64
 minilua %DASM% -LN %DASMFLAGS% -o host\buildvm_arch.h %DASC%
+minilua jitlog\build.lua %GC64%
 @if errorlevel 1 goto :BAD
 
 %LJCOMPILE% /I "." /I %DASMDIR% host\buildvm*.c
