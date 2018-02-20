@@ -583,9 +583,15 @@ static int trace_abort(jit_State *J)
   if (J->parent == 0 && !bc_isret(bc_op(J->cur.startins))) {
     if (J->exitno == 0) {
       BCIns *startpc = mref(J->cur.startpc, BCIns);
-      if (e == LJ_TRERR_RETRY)
-	hotcount_set(J2GG(J), startpc+1, 1);  /* Immediate retry. */
-      else
+      if (e == LJ_TRERR_RETRY) {
+        if (startpc == 0) {
+          gcref(J->cur.startpt)->pt.hotcount = 1;
+        } else {
+          lua_assert(bc_op(startpc[0]) > BC_FORI || bc_op(startpc[0]) <= BC_JLOOP);
+          hotcount_loop_set(startpc, 1);
+        }
+       // hotcount_set(J2GG(J), startpc+1, 1);  /* Immediate retry. */
+      } else
 	penalty_pc(J, &gcref(J->cur.startpt)->pt, startpc, e);
     } else {
       traceref(J, J->exitno)->link = J->exitno;  /* Self-link is blacklisted. */
