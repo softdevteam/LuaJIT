@@ -523,7 +523,7 @@ function logreader:parsefile(path)
   self:parse_buffer(logbuffer, #logbuffer)
 end
 
-local function make_msgparser(file_msgsizes, dispatch, aftermsg)
+local function make_msgparser(file_msgsizes, dispatch, aftermsg, premsg)
   local msgtype_max = #file_msgsizes
   local msgsize = ffi.new("uint8_t[256]", 0)
   for i, size in ipairs(file_msgsizes) do
@@ -558,6 +558,8 @@ local function make_msgparser(file_msgsizes, dispatch, aftermsg)
           error("bad message size")
         end
       end
+      
+      premsg(self, msgtype, size, pos)
 
       local action = dispatch[msgtype]
       if action then
@@ -655,7 +657,7 @@ function logreader:processheader(header)
   self.dispatch = dispatch
   self.header = header
   
-  self.parsemsgs = make_msgparser(self.msgsizes, dispatch, self.allmsgcb or nop)
+  self.parsemsgs = make_msgparser(self.msgsizes, dispatch, self.allmsgcb or nop, self.premsgcb or nop)
 end
 
 function logreader:parse_buffer(buff, length)
@@ -678,6 +680,17 @@ end
 
 local mt = {__index = logreader}
 
+local function make_callchain(curr, func)
+  if not curr then
+    return func
+  else
+    return function(self, msgtype, size, pos)
+        curr(self, msgtype, size, pos)
+        func(self, msgtype, size, pos)
+    end
+  end
+end
+
 local function applymixin(self, mixin)
   if mixin.init then
     mixin.init(self)
@@ -693,16 +706,11 @@ local function applymixin(self, mixin)
     end
   end
   if mixin.aftermsg then
-    if not self.allmsgcb then
-      self.allmsgcb = mixin.aftermsg
-    else
-      local callback1 = self.allmsgcb
-      local callback2 = mixin.aftermsg
-      self.allmsgcb = function(self, msgtype, size, pos)
-        callback1(self, msgtype, size, pos)
-        callback2(self, msgtype, size, pos)
-      end
-    end
+      self.allmsgcb = make_callchain(self.allmsgcb, mixin.aftermsg)
+  end
+  
+  if mixin.premsg then
+      self.premsgcb = make_callchain(self.premsgcb, mixin.premsg)
   end
 end
 
