@@ -273,7 +273,7 @@ function base_actions:gcproto(msg)
   if bclen == 0 or msg.lineinfosize == 0 then
     -- We won't have any line info for internal functions or if the debug info is stripped
     lineinfo = nolineinfo
-  elseif proto.numline < 255 then
+  elseif proto.numline <= 255 then
     lisize = 1
     lineinfo = u8array(bclen)
   elseif proto.numline < 0xffff then
@@ -367,7 +367,7 @@ function base_actions:traceexit(msg)
   local gcexit = msg:get_isgcexit()
   self.exits = self.exits + 1
   if gcexit then
-    assert(self.gcstate == "atomic" or self.gcstate == "finalize")
+    --assert(self.gcstate == "atomic" or self.gcstate == "finalize")
     self.gcexits = self.gcexits + 1
     self:log_msg("traceexit", "TraceExit(%d): %d GC Triggered", id, exit)
   else
@@ -442,7 +442,7 @@ function base_actions:gcstate(msg)
     if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
       self.gccount = self.gccount + 1
     end
-    self:log_msg("gcstate", "GCState(%s): changed from %s", newstate, oldstate)
+    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, gcstates[oldstate])
   end
   
   self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
