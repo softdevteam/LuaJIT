@@ -212,6 +212,14 @@ local msgs = {
     "counts_length :  u16",
     "counts : u16[counts_length]",
   },
+
+  {
+    name = "gcsnapshot",
+    "objcount :  u32",
+    "objs : u64[objcount]",
+    "objmemsz :  u64",
+    "objmem : u8[objmemsz]",
+  },
 }
 
 return msgs

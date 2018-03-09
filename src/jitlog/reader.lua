@@ -451,6 +451,111 @@ function base_actions:gcstate(msg)
   return self.gcstate, gcstates[prevstate]
 end
 
+ffi.cdef[[
+  typedef struct GCobj{
+    uint32_t typesize;
+    uint32_t address;
+  } GCobj;
+  
+typedef enum gcobj_type
+{
+  gcobj_string,
+  gcobj_upvalue,
+  gcobj_thread,
+  gcobj_funcprototype,
+  gcobj_function,
+  gcobj_trace,
+  gcobj_cdata,
+  gcobj_table,
+  gcobj_udata,
+  gcobj_MAX,
+} gcobj_type;
+]]
+
+local objtypes = {
+  "string",
+  "upvalue",
+  "thread",
+  "funcproto",
+  "function",
+  "trace",
+  "cdata",
+  "table",
+  "udata",
+}
+
+local gcsnapshotlib = {}
+
+function gcsnapshotlib:getstats()
+  local count = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+  local totals = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+  local maxsize = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+  local objs = self.objs
+  for i=0, self.objcount-1 do
+    local otype = band(objs[i].typesize, 15) + 1
+    local size = bit.rshift(objs[i].typesize, 4)
+    count[otype] = count[otype] + 1
+    totals[otype] = totals[otype] + size
+    maxsize[otype] = math.max(maxsize[otype], size)
+  end
+  
+  local stats = {
+    counts = {},
+    memtotals = {},
+    maxsize = {},
+  }
+  
+  for i, name in ipairs(objtypes) do
+    stats.counts[name] = count[i]
+    stats.memtotals[name] = totals[i]
+    stats.maxsize[name] = maxsize[i]
+  end
+  
+  return stats
+end
+
+function gcsnapshotlib:dumpobjs(filter)
+  local objs = self.objs
+  for i=0, self.objcount-1 do
+    local otype = band(objs[i].typesize, 15) + 1
+    local typename = objtypes[otype]
+    local size = bit.rshift(objs[i].typesize, 4)
+    if not filter or not filter[typename] then
+      print(string.format("%s : %d", typename, size))
+    end
+  end
+end
+
+local gcsnapmt = {
+  __index = gcsnapshotlib,
+  __tostring = function(self)
+    return string.format("GCSnapshot: objects = %d, object mem size = ", self.objcount, objmemsz)
+  end,
+}
+
+function base_actions:gcsnapshot(msg)
+  local objcount = msg.objcount
+  local objmemsz = msg.objmemsz 
+  local objs = ffi.new("GCobj[?]", objcount) 
+  local objmem = ffi.new("char[?]", objmemsz)
+  ffi.copy(objs, msg:get_objs(), objcount * 8) 
+  ffi.copy(objmem, msg:get_objmem(), objmemsz)
+  
+  local snap = {
+    eventid = self.eventid,
+    objs = objs,
+    objcount = objcount,
+    objmem = objmem,
+    objmemsz = objmemsz,
+  }
+  setmetatable(snap, gcsnapmt)
+  
+  self:log_msg("gcsnapshot", "GCSnapshot: objects = %d, total object mem = %s", objcount, objmemsz)
+  tinsert(self.gcsnapshots, snap)
+  return snap
+end
+
 local logreader = {}
 
 function logreader:log(fmt, ...)
@@ -753,6 +858,7 @@ local function makereader(mixins)
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
+    gcsnapshots = {},
     enums = {},
     verbose = false,
     logfilter = {

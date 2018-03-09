@@ -377,7 +377,31 @@ function tests.protoloaded()
   assert(result.protos[2].createdid > result.protos[1].createdid)
 end
 
+local function sumtab(t)
+  local total = 0
+  for _, v in pairs(t) do
+    total = total + v
+  end
+  return total
+end
 
+function tests.gcsnapshot()
+  jitlog.start()
+  jitlog.write_gcsnapshot()
+  local t = table.new(8192, 0)
+  jitlog.write_gcsnapshot()
+  local result = parselog(jitlog.savetostring())
+  assert(#result.gcsnapshots == 2)
+  local snap1 = result.gcsnapshots[1]
+  local snap2 = result.gcsnapshots[2]
+  assert(snap2.objcount-snap1.objcount == 1)
+  assert(snap2.objmemsz > snap1.objmemsz)
+  
+  local stats = snap1:getstats()
+  assert(sumtab(stats.counts) == snap1.objcount)
+  -- Also includes the GG state at the end
+  assert(sumtab(stats.memtotals) < snap1.objmemsz)
+end
 
 local failed = false
 

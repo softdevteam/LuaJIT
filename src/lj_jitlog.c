@@ -10,6 +10,7 @@
 #include "lj_vmevent.h"
 #include "lj_debug.h"
 #include "lj_ircall.h"
+#include "lj_gcstats.h"
 #include "luajit.h"
 #include "lauxlib.h"
 
@@ -646,6 +647,14 @@ LUA_API void jitlog_savehotcounts(JITLogUserContext *usrcontext)
 #endif
 }
 
+LUA_API void jitlog_write_gcsnapshot(JITLogUserContext *usrcontext)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  GCSnapshot *snap = gcsnapshot_create(mainthread(context->g));
+  log_gcsnapshot(context->g, (uint64_t *)snap->objects, snap->count, (uint8_t*)snap->gcmem, (uint32_t)snap->gcmem_size);
+  gcsnapshot_free(snap);
+}
+
 /* -- Lua module to control the JITLog ------------------------------------ */
 
 static JITLogState* jlib_getstate(lua_State *L)
@@ -717,6 +726,13 @@ static int jlib_getsize(lua_State *L)
   return 1;
 }
 
+static int jlib_write_gcsnapshot(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  jitlog_write_gcsnapshot(ctx2usr(context));
+  return 0;
+}
+
 #if LJ_HASJIT
 
 static int jlib_cmp_hotcounts(lua_State *L)
@@ -760,6 +776,7 @@ static const luaL_Reg jitlog_lib[] = {
   {"savetostring", jlib_savetostring},
   {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
+  {"write_gcsnapshot", jlib_write_gcsnapshot},
 #if LJ_HASJIT
   {"snap_hotcounts", jlib_snap_hotcounts},
   {"cmp_hotcounts", jlib_cmp_hotcounts},
