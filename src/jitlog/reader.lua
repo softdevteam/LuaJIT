@@ -597,7 +597,7 @@ local function make_msghandler(msgname, base, funcs)
     return function(self, buff, limit)
       local msg = ffi.cast(msgname, buff)
       msg:check(limit)
-      local ret1, ret2 = base(msg, limit)
+      local ret1, ret2 = base(self, msg, limit)
       for _, f in ipairs(funcs) do
         f(self, msg, ret1, ret2)
       end
