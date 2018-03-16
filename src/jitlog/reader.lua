@@ -273,10 +273,10 @@ function base_actions:gcproto(msg)
   if bclen == 0 or msg.lineinfosize == 0 then
     -- We won't have any line info for internal functions or if the debug info is stripped
     lineinfo = nolineinfo
-  elseif proto.numline < 255 then
+  elseif proto.numline < 256 then
     lisize = 1
     lineinfo = u8array(bclen)
-  elseif proto.numline < 0xffff then
+  elseif proto.numline < 65536 then
     lisize = 2
     lineinfo = u16array(bclen)
   else
