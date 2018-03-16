@@ -442,7 +442,7 @@ function base_actions:gcstate(msg)
     if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
       self.gccount = self.gccount + 1
     end
-    self:log_msg("gcstate", "GCState(%s): changed from %s", newstate, oldstate)
+    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, gcstates[oldstate])
   end
   
   self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
