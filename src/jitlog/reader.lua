@@ -352,8 +352,9 @@ function base_actions:trace(msg)
   }
   if aborted then
     trace.abortcode = msg.abortcode
+    trace.abortreason = self.enums.trace_errors[msg.abortcode]
     tinsert(self.aborts, trace)
-    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s\n stop= %s", id, msg.abortcode, msg.parentid, startpt:get_location(), stoppt:get_location())
+    self:log_msg("trace", "AbortedTrace(%d): reason %s, parentid = %d, start= %s\n stop= %s", id, trace.abortreason, msg.parentid, startpt:get_location(), stoppt:get_location())
   else
     tinsert(self.traces, trace)
     self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
@@ -396,20 +397,10 @@ function base_actions:protobl(msg)
   return blacklist
 end
 
-local flush_reason =  {
-  [0] = "other",
-  "user_requested",
-  "max_mcode",
-  "max_trace",
-  "profiletoggle",
-  "set_builtinmt",
-  "set_immutableuv",
-}
-
 function base_actions:alltraceflush(msg)
   local reason = msg:get_reason()
   local flush = {
-    reason = flush_reason[reason],
+    reason = self.enums.flushreason[reason],
     eventid = self.eventid,
     time = msg.time,
     maxmcode = msg.mcodelimit,
@@ -420,21 +411,12 @@ function base_actions:alltraceflush(msg)
   return flush
 end
 
-local gcstates  = {
-  [0] = "pause", 
-  "propagate", 
-  "atomic",
-  "sweepstring", 
-  "sweep", 
-  "finalize",
-}
-
 function base_actions:gcstate(msg)
   local newstate = msg:get_state()
   local prevstate = msg:get_prevstate()
   local oldstate = self.gcstateid
   self.gcstateid = newstate
-  self.gcstate = gcstates[newstate]
+  self.gcstate = self.enums.gcstate[newstate]
   self.gcstatecount = self.gcstatecount + 1
   
   if oldstate ~= newstate then
@@ -442,13 +424,13 @@ function base_actions:gcstate(msg)
     if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
       self.gccount = self.gccount + 1
     end
-    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, gcstates[oldstate])
+    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, self.enums.gcstate[oldstate])
   end
   
   self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
   self.peakstrnum = math.max(self.peakstrnum or 0, msg.strnum)
   self:log_msg("gcstate", "GCStateStats: MemTotal = %dMB, StrCount = %d", msg.totalmem/(1024*1024), msg.strnum)
-  return self.gcstate, gcstates[prevstate]
+  return self.gcstate, self.enums.gcstate[prevstate]
 end
 
 local logreader = {}
