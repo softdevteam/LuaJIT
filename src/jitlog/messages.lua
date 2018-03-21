@@ -92,6 +92,7 @@ local msgs = {
 
   {
     name = "gcproto",
+    "id : u32",
     "address : GCRef",
     "chunkname : GCRef",
     "firstline : i32",
@@ -107,6 +108,7 @@ local msgs = {
     "varinfo : u8[varinfo_size]",
     structcopy = {
       fields = {
+        "id",
         "chunkname",
         "firstline",
         "numline",
