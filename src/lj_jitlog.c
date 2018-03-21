@@ -519,6 +519,29 @@ static void write_header(JITLogState *context)
   write_enum(context, "irfields", irfield_names);
 }
 
+const uint32_t smallidsz = 20;
+
+void jitlog_writemarker(JITLogState *context, uint32_t id, uint32_t flags)
+{
+  int jited = context->g->vmstate > 0;
+  /* TODO: something in the upper flags to set this */
+  if (1) {
+    lua_assert(id < (uint32_t)((1 << smallidsz)-1) && flags < 16);
+    log_smallmarker(context->g, jited, flags, id);
+  } else {
+    log_marker(context->g, jited, flags, id);
+  }
+}
+
+void lj_writemarker(lua_State *L, uint32_t id, uint32_t flags)
+{
+  JITLogState *context = (JITLogState *)(G(L)->vmevent_data);
+  if (context == NULL) {
+    return;
+  }
+  jitlog_writemarker(context, id, flags);
+}
+
 static int jitlog_isrunning(lua_State *L)
 {
   void* current_context = NULL;
