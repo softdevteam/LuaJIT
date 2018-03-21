@@ -59,6 +59,19 @@ local msgs = {
     "label : string",
     use_msgsize = "label",
   },
+  
+  {
+    name = "marker",
+    "time : timestamp",
+    "flags : 4",
+    "id : 20",
+  },
+
+  {
+    name = "smallmarker",
+    "flags : 4",
+    "id : 20",
+  },
 
   {
     name = "gcstring",
