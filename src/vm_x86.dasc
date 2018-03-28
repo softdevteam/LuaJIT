@@ -5334,6 +5334,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
 #endif
   case BC_IFUNCF:
+    |  add dword [PC-4+PC2PROTO(callcount)], 1
     |  ins_AD  // BASE = new base, RA = framesize, RD = nargs+1
     |  mov KBASE, [PC-4+PC2PROTO(k)]
     |  mov L:RB, SAVE_L
@@ -5367,6 +5368,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;  /* NYI: compiled vararg functions. */
 
   case BC_IFUNCV:
+    |  add dword [PC-4+PC2PROTO(callcount)], 1
     |  ins_AD  // BASE = new base, RA = framesize, RD = nargs+1
     |  lea RB, [NARGS:RD*8+FRAME_VARG]
     |  lea RD, [BASE+NARGS:RD*8]
