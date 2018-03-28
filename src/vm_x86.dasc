@@ -414,8 +414,14 @@
 |// Decrement hashed hotcount and trigger trace recorder if zero.
 |.macro hotloop, reg
 |.if 1
+|  mov reg, [BASE-8]
+|  mov reg,
+|  mov LFUNC:reg, [BASE-8]
+|  mov reg, LFUNC:reg->pc
+|  add dword [KBASE+PC2PROTO(k)], 1
 |  mov reg, PC
 |  sub word [PC+2], 1
+|  int3
 |  jb ->vm_hotloop
 |.else
 |  mov reg, PC
