@@ -4852,7 +4852,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:  // Traverse hash part.
     |  sub RC, DISPATCH
     |6:
-    |  cmp RC, TAB:RB->hmask; ja <3	// End of iteration? Branch to ITERL+1.
+    |  cmp RC, TAB:RB->hmask; ja >8	// End of iteration? Branch to ITERL+2.
     |  imul KBASE, RC, #NODE
     |  add NODE:KBASE, TAB:RB->node
     |  cmp dword NODE:KBASE->val.it, LJ_TNIL; je >7
@@ -4879,6 +4879,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |7:  // Skip holes in hash part.
     |  add RC, 1
     |  jmp <6
+    |8:
+    |  mov DISPATCH, TMP2
+    |  mov KBASE, TMP1
+    |  ins_next2
     break;
 
   case BC_ISNEXT:

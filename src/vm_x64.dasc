@@ -4110,7 +4110,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:  // Traverse hash part.
     |  sub RCd, TMPRd
     |6:
-    |  cmp RCd, TAB:RB->hmask; ja <3	// End of iteration? Branch to ITERL+1.
+    |  cmp RCd, TAB:RB->hmask; ja >8	// End of iteration? Branch to ITERL+2.
     |  imul ITYPEd, RCd, #NODE
     |  add NODE:ITYPE, TAB:RB->node
     |  cmp aword NODE:ITYPE->val, LJ_TNIL; je >7
@@ -4126,6 +4126,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |7:  // Skip holes in hash part.
     |  add RCd, 1
     |  jmp <6
+    |8:
+    |  add PC, 4
+    |  jmp >3
     break;
 
   case BC_ISNEXT:
