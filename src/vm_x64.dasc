@@ -326,6 +326,10 @@
 |  lea PC, [PC+reg*4-BCBIAS_J*4]
 |.endmacro
 |
+|.macro branchPC2, reg
+|  lea PC, [PC+reg*4-(BCBIAS_J-1)*4]
+|.endmacro
+|
 |// Assumes DISPATCH is relative to GL.
 #define DISPATCH_GL(field)	(GG_DISP2G + (int)offsetof(global_State, field))
 #define DISPATCH_J(field)	(GG_DISP2J + (int)offsetof(jit_State, field))
@@ -4359,7 +4363,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       }
       |7:
       |  ins_next
-      |
+      |8: // Skip over BC_LOOPHC
+      |  add PC, 4
+      |  jmp >7
       |5:  // Invert check for negative step.
       if (!vk) {
 	|  sar ITYPE, 47;
@@ -4445,6 +4451,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |3:  // Invert comparison if step is negative.
     |  ucomisd xmm0, xmm1
     |  jmp <1
+    |4: // Skip over BC_LOOPHC
+    |  add PC, 4
+    |  jmp <2
     break;
 
   case BC_ITERL:
