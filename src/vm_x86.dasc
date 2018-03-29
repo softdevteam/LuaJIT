@@ -427,8 +427,19 @@
 |
 #define PC2PROTO(field)  ((int)offsetof(GCproto, field)-(int)sizeof(GCproto))
 |
+|.macro update_callcount
+|  add dword [PC-4+PC2PROTO(callcount)], 1
+|.endmacro
+|
+|.macro update_loopcount, reg
+|  mov LFUNC:reg, [BASE-8]
+|  mov reg, LFUNC:reg->pc
+|  add dword [reg+PC2PROTO(loopcount)], 1
+|.endmacro
+|
 |// Decrement hashed hotcount and trigger trace recorder if zero.
 |.macro hotloop, reg
+|  mov reg, PC
 |  sub word [PC+2], 1
 |  jb ->vm_hotloop
 |.endmacro
@@ -5093,6 +5104,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_FORI:
   case BC_IFORL:
     vk = (op == BC_IFORL || op == BC_JFORL);
+    if (op == BC_IFORL) {
+      |  update_loopcount RB
+    }
     |  ins_AJ	// RA = base, RD = target (after end of loop or start of loop)
     |  lea RA, [BASE+RA*8]
     if (LJ_DUALNUM) {
@@ -5234,6 +5248,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #endif
   case BC_IITERL:
     |  ins_AJ	// RA = base, RD = target
+    |  update_loopcount RB
     |  lea RA, [BASE+RA*8]
     |  mov RB, [RA+4]
     |  cmp RB, LJ_TNIL; je >2		// Stop if iterator returned nil.
@@ -5339,6 +5354,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #endif
   case BC_IFUNCF:
     |  ins_AD  // BASE = new base, RA = framesize, RD = nargs+1
+    |  update_callcount
     |  mov KBASE, [PC-4+PC2PROTO(k)]
     |  mov L:RB, SAVE_L
     |  lea RA, [BASE+RA*8]		// Top of frame.
@@ -5372,6 +5388,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_IFUNCV:
     |  ins_AD  // BASE = new base, RA = framesize, RD = nargs+1
+    |  update_callcount
     |  lea RB, [NARGS:RD*8+FRAME_VARG]
     |  lea RD, [BASE+NARGS:RD*8]
     |  mov LFUNC:KBASE, [BASE-8]

@@ -378,6 +378,8 @@ typedef struct GCproto {
   MRef lineinfo;	/* Compressed map from bytecode ins. to source line. */
   MRef uvinfo;		/* Upvalue names. */
   MRef varinfo;		/* Names and compressed extents of local variables. */
+  uint32_t callcount;
+  uint32_t loopcount;
 #if LJ_HASJIT
   uint16_t unused;
   uint16_t hotcount;    /* Hot counter. */
