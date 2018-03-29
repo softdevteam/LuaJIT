@@ -209,7 +209,7 @@ end
 
 function gcproto:get_linenumber(bcidx)
   -- There is never any line info for the first bytecode so use the firstline
-  if bcidx == 0 then
+  if bcidx == 0 or self.firstline == -1 then
     return self.firstline
   end
   return self.firstline + self.lineinfo:get(bcidx-1)
