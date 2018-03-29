@@ -207,6 +207,10 @@ function gcproto:get_location()
   return (format("%s:%d", self.chunk, self.firstline))
 end
 
+function gcproto:get_bclocation(bcidx)
+  return (format("%s:%d", self.chunk, self:get_linenumber(bcidx)))
+end
+
 function gcproto:get_linenumber(bcidx)
   -- There is never any line info for the first bytecode so use the firstline
   if bcidx == 0 or self.firstline == -1 then
@@ -331,6 +335,18 @@ function base_actions:protoloaded(msg)
   return address, proto
 end
 
+local gctrace = {}
+
+function gctrace:get_startlocation()
+  return (self.startpt:get_bclocation(self.startpc))
+end
+
+function gctrace:get_stoplocation()
+  return (self.stoppt:get_bclocation(self.stoppc))
+end
+
+local trace_mt = {__index = gctrace}
+
 function base_actions:trace(msg)
   local id = msg:get_id()
   local aborted = msg:get_aborted()
@@ -359,6 +375,7 @@ function base_actions:trace(msg)
     tinsert(self.traces, trace)
     self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
   end
+  setmetatable(trace, trace_mt)
   return trace
 end
 
