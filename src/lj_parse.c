@@ -2352,7 +2352,11 @@ static void parse_break(LexState *ls)
 
 static void emit_loophotcount(FuncState *fs)
 {
+#if LJ_HASJIT
   bcemit_AD(fs, BC_LOOPHC, 0, L2J(fs->L)->param[JIT_P_hotloop]);
+#else
+  bcemit_AD(fs, BC_LOOPHC, 0, 0);
+#endif
 }
 
 /* Parse 'goto' statement. */
