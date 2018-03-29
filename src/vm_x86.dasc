@@ -5127,15 +5127,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  jle >7
 	|1:
 	|6:
-	|  branchPC RD
+	|  branchPC2 RD // Skip over BC_LOOPHC
       } else if (op == BC_JFORI) {
-	|  branchPC RD
+	|  branchPC2 RD
 	|  movzx RD, PC_RD
 	|  jle =>BC_JLOOP
 	|1:
 	|6:
       } else if (op == BC_IFORL) {
-	|  jg >7
+	|  jg >8
 	|6:
 	|  branchPC RD
 	|1:
@@ -5164,7 +5164,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  movzx RD, PC_RD
 	|  jge =>BC_JLOOP
       } else if (op == BC_IFORL) {
-	|  jl <7
+	|  jl <8
       } else {
 	|  jge =>BC_JLOOP
       }
@@ -5191,9 +5191,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     if (vk) {
       |  addsd xmm0, qword FOR_STEP
       |  movsd qword FOR_IDX, xmm0
-      |  test RB, RB; js >3
+      |  test RB, RB; js >4
     } else {
-      |  jl >3
+      |  jl >4
     }
     |  ucomisd xmm1, xmm0
     |1:
@@ -5211,9 +5211,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  jnb =>BC_JLOOP
     } else if (op == BC_IFORL) {
       |.if DUALNUM
-      |  jb <7
+      |  jb <8
       |.else
-      |  jb >2
+      |  jb >4
       |  branchPC RD
       |.endif
     } else {
