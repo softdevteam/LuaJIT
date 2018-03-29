@@ -58,6 +58,21 @@ typedef struct array_u64 {
   int length;
   uint64_t array[?];
 } array_u64;
+
+/* Stack snapshot header. */
+typedef struct SnapShot {
+  uint16_t mapofs;	/* Offset into snapshot map. */
+  uint16_t ref;		/* First IR ref for this snapshot. */
+  uint8_t nslots;	/* Number of valid slots. */
+  uint8_t topslot;	/* Maximum frame extent. */
+  uint8_t nent;		/* Number of compressed entries. */
+  uint8_t count;	/* Count of taken exits for this snapshot. */
+} SnapShot;
+
+typedef struct array_SnapShot {
+  int length;
+  SnapShot array[?];
+} array_SnapShot;
 ]]
 
 local function array_index(self, index)
@@ -115,7 +130,7 @@ ffi.metatype("array_u32", {
   }
 })
 
-local u64array =  ffi.metatype("array_u64", {
+ffi.metatype("array_u64", {
   __new = make_arraynew(),
   __index = {
     get = array_index,
@@ -126,10 +141,22 @@ local u64array =  ffi.metatype("array_u64", {
   }
 })
 
+ffi.metatype("array_SnapShot", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * ffi.sizeof("SnapShot"))
+    end,
+  }
+})
+
 local u8array = ffi.typeof("array_u8")
 local u16array = ffi.typeof("array_u16")
 local u32array = ffi.typeof("array_u32")
 local u64array = ffi.typeof("array_u64")
+local SnapShotarray = ffi.typeof("array_SnapShot")
 
 local protobc = ffi.metatype("protobc", {
   __new = function(ct, count, src)
@@ -217,6 +244,17 @@ function gcproto:get_linenumber(bcidx)
     return self.firstline
   end
   return self.firstline + self.lineinfo:get(bcidx-1)
+end
+
+function gcproto:get_pcline(pcaddr)
+  local diff = pcaddr-self.bcaddr
+  if diff < 0 or diff > (self.bclen * 4) then
+    return nil
+  end
+  if diff ~= 0 then
+    diff = diff/4
+  end
+  return self:get_linenumber(diff)
 end
 
 function gcproto:dumpbc()
@@ -345,6 +383,12 @@ function gctrace:get_stoplocation()
   return (self.stoppt:get_bclocation(self.stoppc))
 end
 
+function gctrace:get_snappc(snapidx)
+  local snap = self.snapshots:get(snapidx)
+  local ofs = snap.mapofs + snap.nent
+  return tonumber(self.snapmap:get(ofs))
+end
+
 local trace_mt = {__index = gctrace}
 
 function base_actions:trace(msg)
@@ -364,8 +408,12 @@ function base_actions:trace(msg)
     stoppc = msg.stoppc,
     link = msg.link,
     stopfunc = self.func_lookup[addrtonum(msg.stopfunc)],
-    stitched = msg:get_stitched()
+    stitched = msg:get_stitched(),
+    nsnap = msg.nsnap,
   }
+  trace.snapshots = SnapShotarray(msg.nsnap, msg:get_snapshots())
+  trace.snapmap = u32array(msg.nsnapmap, msg:get_snapmap())
+  
   if aborted then
     trace.abortcode = msg.abortcode
     trace.abortreason = self.enums.trace_errors[msg.abortcode]
