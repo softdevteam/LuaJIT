@@ -138,7 +138,7 @@ local msgs = {
     { name = "ir", length = "irlen", type = "u64", argtype = "IRIns *" },
     "snapshots : u64[nsnap]",
     "snapmap : u32[nsnapmap]",
-
+    "callcount : u32",
     structcopy = {
       fields = {
         id = "traceno",
