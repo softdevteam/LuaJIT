@@ -433,7 +433,7 @@ function base_actions:traceexit(msg)
   local gcexit = msg:get_isgcexit()
   self.exits = self.exits + 1
   if gcexit then
-    assert(self.gcstate == "atomic" or self.gcstate == "finalize")
+    --assert(self.gcstate == "atomic" or self.gcstate == "finalize")
     self.gcexits = self.gcexits + 1
     self:log_msg("traceexit", "TraceExit(%d): %d GC Triggered", id, exit)
   else
