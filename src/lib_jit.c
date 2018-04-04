@@ -268,6 +268,36 @@ LJLIB_CF(jit_util_funcuvname)
   return 0;
 }
 
+LJLIB_CF(jit_util_funchcount)
+{
+  GCproto *pt = check_Lproto(L, 0);
+  int32_t idx = lj_lib_checkint(L, 2); 
+  if (idx == -1) {
+    setintV(L->top-1, pt->callcount);
+  } else if (idx == -2) {
+    setintV(L->top-1, pt->loopcount);
+  } else if (idx == 0) {
+    setintV(L->top-1, pt->hotcount);
+  } else if (idx > 0) {
+    BCIns *bc = proto_bc(pt);
+    int hci = 0;
+    int i = 0;
+    for(i = 0; i != pt->sizebc;i++){
+      if (bc_op(bc[i]) == BC_LOOPHC) {
+        if (hci == idx-1) {
+          setintV(L->top-1, bc_d(bc[i]));
+          return 1;
+        }
+        hci++;
+      }
+    }
+    luaL_error(L, "bad hot count index");
+  } else {
+    luaL_error(L, "bad hot count index");
+  }
+  return 1;
+}
+
 /* -- Reflection API for traces ------------------------------------------- */
 
 #if LJ_HASJIT
