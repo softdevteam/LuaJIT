@@ -277,15 +277,17 @@ LJLIB_CF(jit_util_funchcount)
   } else if (idx == -2) {
     setintV(L->top-1, pt->loopcount);
   } else if (idx == 0) {
-    setintV(L->top-1, pt->hotcount);
+    int count = hotcount_get(L2GG(L), proto_bc(pt) + 1);
+    setintV(L->top-1, count);
   } else if (idx > 0) {
     BCIns *bc = proto_bc(pt);
     int hci = 0;
     int i = 0;
-    for(i = 0; i != pt->sizebc;i++){
-      if (bc_op(bc[i]) == BC_LOOPHC) {
+    for (i = 0; i != pt->sizebc; i++) {
+      if (bc_op(bc[i]) >= BC_FORL && bc_op(bc[i]) <= BC_JLOOP) {
         if (hci == idx-1) {
-          setintV(L->top-1, bc_d(bc[i]));
+          int count = hotcount_get(L2GG(L), (bc+(i+1)));
+          setintV(L->top-1, count);
           return 1;
         }
         hci++;
