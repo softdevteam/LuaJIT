@@ -382,13 +382,13 @@ static void blacklist_pc(jit_State *J, GCproto *pt, BCIns *pc)
 static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
 {
   int isloop = proto_bcpos(pt, pc) != 0;
-  uint32_t i, val = isloop ? PENALTY_MIN_LOOP : PENALTY_MIN_PT;
+  uint32_t i, val = J->param[isloop ? JIT_P_penaltyloop : JIT_P_penaltyfunc];
   for (i = 0; i < PENALTY_SLOTS; i++)
     if (mref(J->penalty[i].pc, const BCIns) == pc) {  /* Cache slot found? */
       /* First try to bump its hotcount several times. */
       val = ((uint32_t)J->penalty[i].val << 1) +
 	    LJ_PRNG_BITS(J, PENALTY_RNDBITS);
-      if (val > PENALTY_MAX) {
+      if (val > (uint32_t)(isloop ? PENALTY_MAX_LOOP : PENALTY_MAX_PT)) {
 	blacklist_pc(J, pt, pc);  /* Blacklist it, if that didn't help. */
 	return;
       }
@@ -403,10 +403,11 @@ setpenalty:
   J->penalty[i].reason = e;
   /* If the pc is the function header set the hot count in the proto */
   if (!isloop) {
-    lua_assert(val == PENALTY_MIN_PT || val > pt->hotcount);
+    lua_assert(val == J->param[JIT_P_penaltyfunc] || val > pt->hotcount);
     pt->hotcount = val;
   } else {
-    lua_assert(val == PENALTY_MIN_LOOP || val > hotcount_loop_get(pc));
+    lua_assert(bc_op(pc[1]) == BC_LOOPHC);
+    lua_assert(val == J->param[JIT_P_penaltyloop] || val > hotcount_loop_get(pc));
     hotcount_loop_set(pc, val);
   }
 }
