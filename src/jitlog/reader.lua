@@ -342,6 +342,7 @@ function base_actions:trace(msg)
     id = id,
     rootid = msg.root,
     parentid = msg.parentid,
+    callcount = msg.callcount,
     startpt = startpt,
     startpc = msg.startpc,
     stoppt = stoppt,
