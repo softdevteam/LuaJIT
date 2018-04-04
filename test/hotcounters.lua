@@ -24,9 +24,9 @@ local function hotscaling(start)
   print("max calls to get blacklisted:", total_max)
 end
 
-hotscaling(36)
+--hotscaling(36)
 
-hotscaling(36*2)
+--hotscaling(36*2)
 
 local function printinfo(f, label, loops)
   label = label or "hotcounters: "
@@ -76,6 +76,36 @@ local function calln(f, n)
 end
 
 jit.off(calln)
+
+local function f3(n) 
+  a = 0 
+  for i=1,n do a = a + 1 end
+  return a
+end 
+
+jit.off()
+jit.on()
+
+jitlog.start()
+
+f3(55)
+assert(get_hotcount(f3, countid_loop1) == 1)
+f3(1)
+assert(get_hotcount(f3, countid_loop1) == loop_penalty)
+
+local prev = get_hotcount(f3, countid_loop1)
+
+for i=1, 10 do
+  local count = get_hotcount(f3, countid_loop1)
+  prev = count
+  print(i..":", count/2)
+  f3(math.floor(count/2))
+  assert(get_hotcount(f3, countid_loop1) <= 1)
+  f3(1)
+  assert(get_hotcount(f3, countid_loop1) >= prev*2)
+end
+
+io.stdin:read()
 
 function tests.func_hotcounters()
   local function f1() end
