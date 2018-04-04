@@ -381,7 +381,8 @@ static void blacklist_pc(jit_State *J, GCproto *pt, BCIns *pc)
 /* Penalize a bytecode instruction. */
 static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
 {
-  uint32_t i, val = PENALTY_MIN;
+  int isloop = proto_bcpos(pt, pc) != 0;
+  uint32_t i, val = isloop ? PENALTY_MIN_LOOP : PENALTY_MIN_PT;
   for (i = 0; i < PENALTY_SLOTS; i++)
     if (mref(J->penalty[i].pc, const BCIns) == pc) {  /* Cache slot found? */
       /* First try to bump its hotcount several times. */
@@ -401,10 +402,11 @@ setpenalty:
   J->penalty[i].val = (uint16_t)val;
   J->penalty[i].reason = e;
   /* If the pc is the function header set the hot count in the proto */
-  if (proto_bcpos(pt, pc) == 0) {
+  if (!isloop) {
+    lua_assert(val == PENALTY_MIN_PT || val > pt->hotcount);
     pt->hotcount = val;
   } else {
-    lua_assert(val == PENALTY_MIN || val > hotcount_loop_get(pc));
+    lua_assert(val == PENALTY_MIN_LOOP || val > hotcount_loop_get(pc));
     hotcount_loop_set(pc, val);
   }
 }
