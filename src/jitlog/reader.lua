@@ -73,10 +73,37 @@ typedef struct array_SnapShot {
   int length;
   SnapShot array[?];
 } array_SnapShot;
+
+
+typedef union IRIns {
+  struct {
+    uint16_t op1;	/* IR operand 1. */
+    uint16_t op2;	/* IR operand 2. */
+    uint16_t ot;		/* IR opcode and type (overlaps t and o). */
+    uint16_t prev;	/* Previous ins in same chain (overlaps r and s). */
+  };
+  struct {
+    int32_t op12;	/* IR operand 1 and 2 (overlaps op1 and op2). */
+    uint8_t t;	/* IR type. */
+    uint8_t o;	/* IR opcode. */
+    uint8_t r;	/* Register allocation (overlaps prev). */
+    uint8_t s;	/* Spill slot allocation (overlaps prev). */
+  };
+  int32_t i;		/* 32 bit signed integer literal (overlaps op12). */
+  GCRef gcr;		/* GCobj constant (overlaps op12 or entire slot). */
+  MRef ptr;		/* Pointer constant (overlaps op12 or entire slot). */
+  double tv;		/* TValue constant (overlaps entire slot). */
+} IRIns;
+
+typedef struct array_IR {
+  int length;
+  IRIns array[?];
+} array_IR;
+
 ]]
 
 local function array_index(self, index)
-  assert(index >= 0 and index < self.length)
+  assert(index >= 0 and index < self.length, index)
   return self.array[index]
 end
 
@@ -152,11 +179,23 @@ ffi.metatype("array_SnapShot", {
   }
 })
 
+ffi.metatype("array_IR", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 8)
+    end,
+  }
+})
+
 local u8array = ffi.typeof("array_u8")
 local u16array = ffi.typeof("array_u16")
 local u32array = ffi.typeof("array_u32")
 local u64array = ffi.typeof("array_u64")
 local SnapShotarray = ffi.typeof("array_SnapShot")
+local IRarray = ffi.typeof("array_IR")
 
 local protobc = ffi.metatype("protobc", {
   __new = function(ct, count, src)
@@ -389,6 +428,78 @@ function gctrace:get_snappc(snapidx)
   return tonumber(self.snapmap:get(ofs))
 end
 
+local REF_BIAS = 0x8000
+
+function gctrace:dumpIR()
+  local irstart = REF_BIAS-self.nk
+  local count = self.nins-REF_BIAS
+  local irname = self.owner.enums.ir
+  
+  for i=0, count-2 do
+    local ins = self.ir:get(irstart+i)
+    local op = irname[ins.o]
+    local op1, op2 = ins.op1, ins.op2
+    
+    if op == "FLOAD" then
+      op2 = self.owner.enums.irfields[op2]
+    elseif op == "HREF" or op == "KSLOT" or op == "NEWREF" then
+      op2 = self:get_irconstant(op2)
+    else
+      if op2 > self.nk and op2 < self.nins then
+        op2 = op2-REF_BIAS
+      end
+    end
+    
+    if op1 > self.nk and op1 < self.nins then
+        op1 = op1-REF_BIAS
+    end
+    -- TEMP reduce noise
+    if op == "UREFC" then
+      op2 = 0
+    end
+    
+    print(i..": "..irname[op], op1, op2)
+  end
+end
+
+function gctrace:get_consttab()
+  local count = REF_BIAS-self.nk
+  local irname = self.owner.enums.ir
+  local t = {}
+  
+  for i=0, (count-1) do
+    local ins = self.ir:get(count - i)
+    local op = ins.o
+    local op1, op2 = ins.op1, ins.op2
+
+      if op2 > self.nk and op2 < self.nins then
+        op2 = op2-REF_BIAS
+      end
+
+    
+    if op1 > self.nk and op1 < self.nins then
+        op1 = op1-REF_BIAS
+    end
+    t[i+1] =  {irname[op], op1, op2}
+  end
+  return t
+end
+
+function gctrace:get_irconstant(irref)
+  local index = -(self.nk - irref)
+  local ins = self.ir:get(index)
+  local o = self.owner.enums.ir[ins.o]
+  local types = self.owner.enums.ir.irtypes
+  
+  if o == "KSLOT" or o == "NEWREF" then
+    local gcstr = self.ir:get(-(self.nk - ins.op1)).gcr
+    return self.owner.strings[gcstr]
+  elseif o == "KGC" and ins.t == types.STR then
+    local gcstr = ins.gcr
+    return self.owner.strings[gcstr]
+  end
+end
+
 local trace_mt = {__index = gctrace}
 
 function base_actions:trace(msg)
@@ -410,9 +521,12 @@ function base_actions:trace(msg)
     stopfunc = self.func_lookup[addrtonum(msg.stopfunc)],
     stitched = msg:get_stitched(),
     nsnap = msg.nsnap,
+    nins = msg.nins,
+    nk = msg.nk,
   }
   trace.snapshots = SnapShotarray(msg.nsnap, msg:get_snapshots())
   trace.snapmap = u32array(msg.nsnapmap, msg:get_snapmap())
+  trace.ir = IRarray(msg.irlen, msg:get_ir())
   
   if aborted then
     trace.abortcode = msg.abortcode
