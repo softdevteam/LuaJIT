@@ -142,7 +142,7 @@ GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, GCtab *env)
     GCupval *uv = func_emptyuv(L);
     int32_t v = proto_uv(pt)[i];
     uv->immutable = ((v / PROTO_UV_IMMUTABLE) & 1);
-    uv->dhash = (uint32_t)(uintptr_t)pt ^ (v << 24);
+    uv->dhash = pt->id | (v << 24);
     setgcref(fn->l.uvptr[i], obj2gco(uv));
   }
   fn->l.nupvalues = (uint8_t)nuv;
