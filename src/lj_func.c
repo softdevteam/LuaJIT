@@ -142,7 +142,7 @@ GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, GCtab *env)
     GCupval *uv = func_emptyuv(L);
     int32_t v = proto_uv(pt)[i];
     uv->immutable = ((v / PROTO_UV_IMMUTABLE) & 1);
-    uv->dhash = pt->id | (v << 24);
+    uv->dhash = (v << 24) | (pt->id & 0x7FFFFF);
     setgcref(fn->l.uvptr[i], obj2gco(uv));
   }
   fn->l.nupvalues = (uint8_t)nuv;
@@ -168,7 +168,7 @@ GCfunc *lj_func_newL_gc(lua_State *L, GCproto *pt, GCfuncL *parent)
     if ((v & PROTO_UV_LOCAL)) {
       uv = func_finduv(L, base + (v & 0xff));
       uv->immutable = ((v / PROTO_UV_IMMUTABLE) & 1);
-      uv->dhash = (uint32_t)(uintptr_t)mref(parent->pc, char) ^ (v << 24);
+      uv->dhash = (v << 24) | (1 << 23) | (funcproto((GCfunc*)parent)->id & 0x7FFFFF);
     } else {
       uv = &gcref(puv[v])->uv;
     }
