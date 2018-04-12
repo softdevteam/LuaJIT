@@ -53,6 +53,7 @@ static GCupval *func_finduv(lua_State *L, TValue *slot)
   newwhite(g, uv);
   uv->gct = ~LJ_TUPVAL;
   uv->closed = 0;  /* Still open. */
+  uv->dhash = 0;
   setmref(uv->v, slot);  /* Pointing to the stack slot. */
   /* NOBARRIER: The GCupval is new (marked white) and open. */
   setgcrefr(uv->nextgc, *pp);  /* Insert into sorted list of open upvalues. */
@@ -168,7 +169,13 @@ GCfunc *lj_func_newL_gc(lua_State *L, GCproto *pt, GCfuncL *parent)
     if ((v & PROTO_UV_LOCAL)) {
       uv = func_finduv(L, base + (v & 0xff));
       uv->immutable = ((v / PROTO_UV_IMMUTABLE) & 1);
-      uv->dhash = (v << 24) | (1 << 23) | (funcproto((GCfunc*)parent)->id & 0x7FFFFF);
+
+      if (uv->dhash == 0) {
+        uv->dhash = (v << 24) | (1 << 23) | (funcproto((GCfunc*)parent)->id & 0x7FFFFF);
+      } else {
+        lua_assert((uv->dhash & 0x7FFFFF) == funcproto((GCfunc*)parent)->id);
+        lua_assert((uv->dhash >> 24) == (v & 0xff));
+      }
     } else {
       uv = &gcref(puv[v])->uv;
     }
