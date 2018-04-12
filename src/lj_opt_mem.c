@@ -390,7 +390,7 @@ doemit:
 ** generate a unique key for every upvalue, even across all prototypes.
 ** Lacking a realistic use-case, it's unclear whether this is beneficial.
 */
-static AliasRet aa_uref(IRIns *refa, IRIns *refb)
+static AliasRet aa_uref(jit_State *J, IRIns *refa, IRIns *refb)
 {
   if (refa->o != refb->o)
     return ALIAS_NO;  /* Different UREFx type. */
@@ -400,7 +400,7 @@ static AliasRet aa_uref(IRIns *refa, IRIns *refb)
     else
       return ALIAS_NO;  /* Same function, different upvalue idx. */
   } else {  /* Different functions, check disambiguation hash values. */
-    if (((refa->op2 ^ refb->op2) & 0xff))
+    if (ir_uvhash(IR(refa->op2)) ^ ir_uvhash(IR(refb->op2)))
       return ALIAS_NO;  /* Upvalues with different hash values cannot alias. */
     else
       return ALIAS_MAY;  /* No conclusion can be drawn for same hash value. */
@@ -419,7 +419,7 @@ TRef LJ_FASTCALL lj_opt_fwd_uload(jit_State *J)
   ref = J->chain[IR_USTORE];
   while (ref > lim) {
     IRIns *store = IR(ref);
-    switch (aa_uref(xr, IR(store->op1))) {
+    switch (aa_uref(J, xr, IR(store->op1))) {
     case ALIAS_NO:   break;  /* Continue searching. */
     case ALIAS_MAY:  lim = ref; goto cselim;  /* Limit search for load. */
     case ALIAS_MUST: return store->op2;  /* Store forwarding. */
@@ -451,7 +451,7 @@ TRef LJ_FASTCALL lj_opt_dse_ustore(jit_State *J)
   IRRef ref = *refp;
   while (ref > xref) {  /* Search for redundant or conflicting stores. */
     IRIns *store = IR(ref);
-    switch (aa_uref(xr, IR(store->op1))) {
+    switch (aa_uref(J, xr, IR(store->op1))) {
     case ALIAS_NO:
       break;  /* Continue searching. */
     case ALIAS_MAY:	/* Store to MAYBE the same location. */

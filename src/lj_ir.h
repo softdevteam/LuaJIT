@@ -93,8 +93,8 @@
   _(HREFK,	R , ref, ref) \
   _(HREF,	L , ref, ref) \
   _(NEWREF,	S , ref, ref) \
-  _(UREFO,	LW, ref, lit) \
-  _(UREFC,	LW, ref, lit) \
+  _(UREFO,	LW, ref, ref) \
+  _(UREFC,	LW, ref, ref) \
   _(FREF,	R , ref, lit) \
   _(STRREF,	N , ref, ref) \
   _(LREF,	L , ___, ___) \
@@ -578,6 +578,9 @@ typedef union IRIns {
 #define ir_kptr(ir) \
   check_exp((ir)->o == IR_KPTR || (ir)->o == IR_KKPTR, \
     mref((ir)[LJ_GC64].ptr, void))
+
+#define ir_uvslot(ir) check_exp((ir)->o == IR_KINT, ((uint32_t)(ir)->i) >> 24)
+#define ir_uvhash(ir) ((ir)->i & 0xffffff)
 
 /* A store or any other op with a non-weak guard has a side-effect. */
 static LJ_AINLINE int ir_sideeff(IRIns *ir)

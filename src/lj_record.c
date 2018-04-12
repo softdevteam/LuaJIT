@@ -1572,6 +1572,7 @@ static TRef rec_upvalue(jit_State *J, uint32_t uv, TRef val)
   GCupval *uvp = &gcref(J->fn->l.uvptr[uv])->uv;
   TRef fn = getcurrf(J);
   IRRef uref;
+  TRef uvhash;
   int needbarrier = 0;
   if (rec_upvalue_constify(J, uvp)) {  /* Try to constify immutable upvalue. */
     TRef tr, kfunc;
@@ -1593,10 +1594,11 @@ static TRef rec_upvalue(jit_State *J, uint32_t uv, TRef val)
       return tr;
   }
 noconstify:
-  /* Note: this effectively limits LJ_MAX_UPVAL to 127. */
-  uv = (uv << 8) | (hashrot(uvp->dhash, uvp->dhash + HASH_BIAS) & 0xff);
+  /* Note: this effectively limits LJ_MAX_UPVAL to 255. */
+  /* Hash collisions can start happening after more than 65535 protos have been created */
+  uvhash = lj_ir_kint(J,  (uv << 24) | (((uvp->dhash >> 8) & 0xff0000) ^ (uvp->dhash & 0xffffff)));
   if (!uvp->closed) {
-    uref = tref_ref(emitir(IRTG(IR_UREFO, IRT_PGC), fn, uv));
+    uref = tref_ref(emitir(IRTG(IR_UREFO, IRT_PGC), fn, uvhash));
     /* In current stack? */
     if (uvval(uvp) >= tvref(J->L->stack) &&
 	uvval(uvp) < tvref(J->L->maxstack)) {
@@ -1621,7 +1623,7 @@ noconstify:
 	   lj_ir_kint(J, (J->baseslot + J->maxslot) * 8));
   } else {
     needbarrier = 1;
-    uref = tref_ref(emitir(IRTG(IR_UREFC, IRT_PGC), fn, uv));
+    uref = tref_ref(emitir(IRTG(IR_UREFC, IRT_PGC), fn, uvhash));
   }
   if (val == 0) {  /* Upvalue load */
     IRType t = itype2irt(uvval(uvp));
