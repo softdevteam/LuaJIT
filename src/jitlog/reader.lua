@@ -434,11 +434,26 @@ function gctrace:dumpIR()
   local irstart = REF_BIAS-self.nk
   local count = self.nins-REF_BIAS
   local irname = self.owner.enums.ir
+  local snaplimit = self.snapshots:get(0).ref-REF_BIAS
+  local snapi = 0
   
   for i=0, count-2 do
     local ins = self.ir:get(irstart+i)
     local op = irname[ins.o]
     local op1, op2 = ins.op1, ins.op2
+    
+    if i >= snaplimit then
+      local pc = self:get_snappc(snapi)
+      local pt, line = self.owner:pc2proto(pc)
+      print(format(" ------------ Snap(%d): %s: %d ----------------------", snapi, pt and pt.chunk or "?", line or -1))
+      
+      snapi = snapi + 1
+      if snapi == self.nsnap then
+        snaplimit = 0xffff
+      else
+        snaplimit = self.snapshots:get(snapi).ref-REF_BIAS
+      end
+    end
     
     if op == "FLOAD" then
       op2 = self.owner.enums.irfields[op2]
@@ -455,10 +470,10 @@ function gctrace:dumpIR()
     end
     -- TEMP reduce noise
     if op == "UREFC" then
-      op2 = 0
+      op2 = ins.op2
     end
     
-    print(i..": "..irname[op], op1, op2)
+    print(i..": "..op, op1, op2)
   end
 end
 
@@ -489,7 +504,7 @@ function gctrace:get_irconstant(irref)
   local index = -(self.nk - irref)
   local ins = self.ir:get(index)
   local o = self.owner.enums.ir[ins.o]
-  local types = self.owner.enums.ir.irtypes
+  local types = self.owner.enums.irtypes
   
   if o == "KSLOT" or o == "NEWREF" then
     local gcstr = self.ir:get(-(self.nk - ins.op1)).gcr
@@ -835,6 +850,16 @@ function logreader:parse_buffer(buff, length)
 
   self:parsemsgs(buff, length - self.header.size)
   return true
+end
+
+function logreader:pc2proto(pc)
+  for i, pt in ipairs(self.protos) do
+    local line = pt:get_pcline(pc)
+    if line then
+      return pt, line
+    end
+  end
+  return nil, nil
 end
 
 local mt = {__index = logreader}
