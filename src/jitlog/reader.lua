@@ -430,14 +430,16 @@ end
 
 local REF_BIAS = 0x8000
 
-function gctrace:dumpIR()
+function gctrace:dumpIR(start)
+  start = start or 0
+  
   local irstart = REF_BIAS-self.nk
   local count = self.nins-REF_BIAS
   local irname = self.owner.enums.ir
   local snaplimit = self.snapshots:get(0).ref-REF_BIAS
   local snapi = 0
   
-  for i=0, count-2 do
+  for i=start, count-2 do
     local ins = self.ir:get(irstart+i)
     local op = irname[ins.o]
     local op1, op2 = ins.op1, ins.op2
@@ -457,7 +459,7 @@ function gctrace:dumpIR()
     
     if op == "FLOAD" then
       op2 = self.owner.enums.irfields[op2]
-    elseif op == "HREF" or op == "KSLOT" or op == "NEWREF" then
+    elseif op == "HREF" or op == "HREFK" or op == "NEWREF" then
       op2 = self:get_irconstant(op2)
     else
       if op2 > self.nk and op2 < self.nins then
@@ -487,11 +489,10 @@ function gctrace:get_consttab()
     local op = ins.o
     local op1, op2 = ins.op1, ins.op2
 
-      if op2 > self.nk and op2 < self.nins then
-        op2 = op2-REF_BIAS
-      end
+    if op2 > self.nk and op2 < self.nins then
+      op2 = op2-REF_BIAS
+    end
 
-    
     if op1 > self.nk and op1 < self.nins then
         op1 = op1-REF_BIAS
     end
