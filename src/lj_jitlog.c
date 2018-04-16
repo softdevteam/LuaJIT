@@ -39,13 +39,34 @@ typedef struct JITLogState {
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
 
-static GCtab* create_pinnedtab(lua_State *L)
+int weakkey;
+
+static GCtab* create_pinnedtab(lua_State *L, int weak)
 {
   GCtab *t = lj_tab_new(L, 0, 0);
   TValue key;
   setlightudV(&key, t);
   settabV(L, lj_tab_set(L, tabV(registry(L)), &key), t);
+
+  if (weak) {
+    GCtab *mt;
+    cTValue *mttv;
+    setlightudV(&key, &weakkey);
+    mttv = lj_tab_get(L, tabV(registry(L)), &key);
+
+    if (tvisnil(mttv)) {
+      mt = lj_tab_new(L, 0, 2);
+      setstrV(L, lj_tab_setstr(L, mt, lj_str_newlit(L, "__mode")), lj_str_newlit(L, "kv"));
+      settabV(L, lj_tab_set(L, tabV(registry(L)), &key), mt);
+    } else {
+      mt = tabV(mttv);
+    }
+
+    setgcref(t->metatable, obj2gco(mt));
+    t->nomm = (uint8_t)(~(1u<<MM_mode));
+  }
   lj_gc_anybarriert(L, tabV(registry(L)));
+
   return t;
 }
 
@@ -538,9 +559,9 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context = malloc(sizeof(JITLogState));
   memset(context, 0 , sizeof(JITLogState));
   context->g = G(L);
-  context->strings = create_pinnedtab(L);
-  context->protos = create_pinnedtab(L);
-  context->funcs = create_pinnedtab(L);
+  context->strings = create_pinnedtab(L, 1);
+  context->protos = create_pinnedtab(L, 1);
+  context->funcs = create_pinnedtab(L, 1);
 
   MSize total = G(L)->gc.total;
   SBuf *sb = &context->eventbuf;
