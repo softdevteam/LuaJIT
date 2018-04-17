@@ -139,6 +139,8 @@ static void stack_init(lua_State *L1, lua_State *L)
 
 /* -- State handling ------------------------------------------------------ */
 
+void* jitlog_start(lua_State *L);
+
 /* Open parts that may cause memory-allocation errors. */
 static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
 {
@@ -155,6 +157,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   fixstring(lj_err_str(L, LJ_ERR_ERRMEM));  /* Preallocate memory error msg. */
   g->gc.threshold = 4*g->gc.total;
   lj_trace_initstate(g);
+  jitlog_start(L);
   return NULL;
 }
 
