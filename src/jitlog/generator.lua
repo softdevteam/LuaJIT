@@ -556,7 +556,7 @@ function generator:write_vlenfield(msgdef, f, vtotal, vwrite)
     tinsert(vtotal, self:buildtemplate("MSize {{sizename}} = (MSize)strlen({{name}});", tmpldata))
   end
   tinsert(vtotal, self:buildtemplate("vtotal += {{sizename}} * {{element_size}};", tmpldata))
-  tinsert(vwrite, self:buildtemplate("lj_buf_putmem(sb, {{name}}, (MSize)({{sizename}} * {{element_size}}));", tmpldata))
+  tinsert(vwrite, self:buildtemplate("jitlog_buf_putmem(sb, {{name}}, (MSize)({{sizename}} * {{element_size}}));", tmpldata))
 end
 
 local funcdef_fixed = [[
@@ -567,7 +567,7 @@ static LJ_AINLINE void log_{{name}}({{args}})
   SBuf *sb = (SBuf *)g->vmevent_data;
   MSG_{{name}} *msg = (MSG_{{name}} *)sbufP(sb);
 {{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
-  lj_buf_more(sb, {{minbuffspace}});
+  jitlog_buf_more(sb, {{minbuffspace}});
 }
 
 ]]
@@ -579,7 +579,7 @@ static LJ_AINLINE void log_{{name}}({{args}})
 {
   SBuf *sb = (SBuf *)g->vmevent_data;
   MSG_{{name}} *msg;
-{{vtotal:  %s\n}}  msg = (MSG_{{name}} *)lj_buf_more(sb, (MSize)(vtotal + {{minbuffspace}}));
+{{vtotal:  %s\n}}  msg = (MSG_{{name}} *)jitlog_buf_more(sb, (MSize)(vtotal + {{minbuffspace}}));
 {{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
 {{vwrite:  %s\n}}
 }

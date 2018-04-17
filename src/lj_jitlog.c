@@ -12,10 +12,13 @@
 #include "lj_ircall.h"
 #include "luajit.h"
 #include "lauxlib.h"
-
-#include "lj_jitlog_def.h"
-#include "lj_jitlog_writers.h"
+#include "lj_err.h"
 #include "jitlog.h"
+#include "lj_jitlog_def.h"
+
+static SBuf *jitlog_buf_putmem(SBuf *sb, const void *q, MSize len);
+static char *jitlog_buf_more(SBuf* sb, MSize sz);
+#include "lj_jitlog_writers.h"
 
 
 typedef struct JITLogState {
@@ -35,6 +38,51 @@ typedef struct JITLogState {
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
 } JITLogState;
+
+static void buf_grow(SBuf *sb, MSize sz)
+{
+  global_State *g = ((JITLogState *)sb)->g;
+  MSize osz = sbufsz(sb), len = sbuflen(sb), nsz = osz;
+  char *b;
+  if (nsz < LJ_MIN_SBUF) nsz = LJ_MIN_SBUF;
+  while (nsz < sz) nsz += nsz;
+  b = g->allocf(g->allocd, sbufB(sb), osz, nsz);
+  if (!b) {
+    lj_err_mem(sbufL(sb));
+  }
+  setmref(sb->b, b);
+  setmref(sb->p, b + len);
+  setmref(sb->e, b + nsz);
+}
+
+static LJ_NOINLINE char *buf_more2(SBuf *sb, MSize sz)
+{
+  MSize len = sbuflen(sb);
+  lua_assert(sz > sbufleft(sb));
+  if (LJ_UNLIKELY(sz > LJ_MAX_BUF || len + sz > LJ_MAX_BUF))
+    lj_err_mem(sbufL(sb));
+  buf_grow(sb, len + sz);
+  return sbufP(sb);
+}
+
+static char *jitlog_buf_more(SBuf* sb, MSize sz)
+{
+  if (LJ_UNLIKELY(sz > sbufleft(sb))) {
+    return buf_more2(sb, sz);
+  }
+  return sbufP(sb);
+}
+
+static SBuf *jitlog_buf_putmem(SBuf *sb, const void *q, MSize len)
+{
+  char *p = jitlog_buf_more(sb, len);
+  p = lj_buf_wmem(p, q, len);
+  setsbufP(sb, p);
+  return sb;
+}
+
+LJ_STATIC_ASSERT(offsetof(JITLogState, eventbuf) == 0);
+LJ_STATIC_ASSERT(offsetof(SBuf, p) == 0);
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
@@ -608,16 +656,10 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context->protos = create_pinnedtab(L);
   context->funcs = create_pinnedtab(L);
 
-  MSize total = G(L)->gc.total;
   SBuf *sb = &context->eventbuf;
   lj_buf_init(L, sb);
-  lj_buf_more(sb, 1024*1024*100);
-  /* 
-  ** Our Buffer size counts towards the gc heap size. This is an ugly hack to try and 
-  ** keep the GC running at the same rate with the jitlog running by excluding our buffer
-  ** from the gcheap size.
-  */
-  G(L)->gc.total = total;
+  jitlog_buf_more(sb, 1024*1024*500);
+
   luaJIT_vmevent_sethook(L, jitlog_callback, context);
   write_header(context);
   G(L)->objalloc_cb = (lua_ObjAlloc_cb)&gcalloc_cb;
@@ -630,6 +672,7 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
 static void free_context(JITLogState *context)
 {
   global_State *g = context->g;
+  SBuf *sb = &context->eventbuf;
   const char *path = getenv("JITLOG_PATH");
   if (path != NULL) {
     jitlog_save(ctx2usr(context), path);
@@ -639,8 +682,7 @@ static void free_context(JITLogState *context)
     g->objallocd = NULL;
   }
 
-  g->gc.total += sbufsz(&context->eventbuf);
-  lj_buf_free(g, &context->eventbuf);
+  g->allocf(g->allocd, sbufB(sb), sbufsz(sb), 0);
   free(context);
 }
 
