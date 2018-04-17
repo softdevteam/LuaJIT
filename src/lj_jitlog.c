@@ -356,6 +356,72 @@ static void jitlog_protoloaded(JITLogState *context, GCproto *pt)
 
 static void free_context(JITLogState *context);
 
+static void gcalloc_cb(JITLogState *context, GCobj *o, uint32_t info, size_t size)
+{
+  int free = (info & 0x80) != 0;
+  int tid = info & 0x7f;
+  uint32_t type = 0;
+  uint32_t extra = 0;
+
+  if (tid == (1 + ~LJ_TUDATA)) {
+    GCtab *t = (GCtab *)o;
+    uint32_t ahsize = t->asize << 8;
+    ahsize |= t->hmask > 0 ? lj_fls(t->hmask+1) : 0;
+    log_gctab_resize(context->g, (info >> 8) & 0xff, info >> 16, o, ahsize);
+    return;
+  }
+
+  if (!free && 0) {
+    if (tid == ~LJ_TSTR) {
+      memorize_string(context, (GCstr *)o);
+      return;
+    } else if(tid == ~LJ_TFUNC) {
+      memorize_func(context, (GCfunc *)o);
+      return;
+    }
+  }
+  
+  switch (tid) {
+    case ~LJ_TSTR:
+      type = 0;
+      break;
+    case ~LJ_TUPVAL:
+      type = 1;
+      break;
+    case ~LJ_TTHREAD:
+      type = 2;
+      break;
+    case ~LJ_TPROTO:
+      type = 3;
+      break;
+    case ~LJ_TFUNC:
+      type = isluafunc(&o->fn) ? 4 : 5;
+      break;
+    case ~LJ_TTRACE:
+      type = 6;
+      break;
+    case ~LJ_TCDATA:
+      type = 7;
+      extra = ((GCcdata *)o)->ctypeid;
+      break;
+    case ~LJ_TTAB:
+      type = 8;
+      break;
+    case ~LJ_TUDATA:
+      type = 9;
+      break;
+    default:
+      lua_assert(0);
+      break;
+  }
+
+  if (size < (1 << 19) && extra == 0) {
+    log_gcobj(context->g, free, type, (uint32_t)size, o);
+  } else {
+    log_gcobj_large(context->g, free, type, extra, o, (uint32_t)size);
+  }
+}
+
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
 {
   VMEvent2 event = (VMEvent2)eventid;
@@ -554,6 +620,8 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   G(L)->gc.total = total;
   luaJIT_vmevent_sethook(L, jitlog_callback, context);
   write_header(context);
+  G(L)->objalloc_cb = (lua_ObjAlloc_cb)&gcalloc_cb;
+  G(L)->objallocd = context;
 
   lj_lib_prereg(L, "jitlog", luaopen_jitlog, tabref(L->env));
   return &context->user;
@@ -565,6 +633,10 @@ static void free_context(JITLogState *context)
   const char *path = getenv("JITLOG_PATH");
   if (path != NULL) {
     jitlog_save(ctx2usr(context), path);
+  }
+  if (g->objalloc_cb == (lua_ObjAlloc_cb)&gcalloc_cb) {
+    g->objalloc_cb = NULL;
+    g->objallocd = NULL;
   }
 
   g->gc.total += sbufsz(&context->eventbuf);
@@ -580,6 +652,11 @@ static void jitlog_shutdown(JITLogState *context)
   if (cb == jitlog_callback) {
     lua_assert(current_context == context);
     luaJIT_vmevent_sethook(L, NULL, NULL);
+  }
+
+  if (G(L)->objalloc_cb == (lua_ObjAlloc_cb)&gcalloc_cb) {
+    G(L)->objalloc_cb = NULL;
+    G(L)->objallocd = NULL;
   }
 
   free_pinnedtab(L, context->strings);

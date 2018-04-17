@@ -451,6 +451,40 @@ function base_actions:gcstate(msg)
   return self.gcstate, gcstates[prevstate]
 end
 
+local objtypes = {
+  [0] = "string",
+  "upvalue",
+  "thread",
+  "proto",
+  "func_c",
+  "func_lua",
+  "trace",
+  "cdata",
+  "table",
+  "userdata"
+}
+
+function base_actions:gcobj(msg)
+  local address = addrtonum(msg.address)
+  local free =  msg:get_free()
+  local objectid
+  if not free then
+    objectid = self.objectid + 1
+    self.objectid = objectid
+    self.objects[address] = objectid
+  else
+    objectid = self.objects[address]
+    self.objects[address] = nil
+  end
+  return address, objectid, objtypes[msg:get_type()]
+end
+base_actions.gcobj_large = base_actions.gcobj
+
+function base_actions:gctab_resize(msg)
+  local address = addrtonum(msg.address)
+  return address, self.objects[address], bit.lshift(1, band(msg.ahsize, 0xff)), rshift(msg.ahsize, 8)
+end
+
 local logreader = {}
 
 function logreader:log(fmt, ...)
@@ -753,6 +787,8 @@ local function makereader(mixins)
     gcexits = 0, -- number of trace exits force triggered by the GC being in the 'atomic' or 'finalize' states
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
+    objects = {},
+    objectid = 0,
     enums = {},
     verbose = false,
     logfilter = {

@@ -212,6 +212,31 @@ local msgs = {
     "counts_length :  u16",
     "counts : u16[counts_length]",
   },
+  
+  {
+    name = "gcobj",
+    "free : bool",
+    "type : 4",
+    "size : 19",
+    "address : GCRefPtr",
+  },
+  
+  {
+    name = "gcobj_large",
+    "free : bool",
+    "type : 4",
+    "extra : 19",
+    "address : GCRefPtr",
+    "size : u32",
+  },
+  
+  {
+    name = "gctab_resize",
+    "oldh : 5",
+    "olda : 5",
+    "address : GCRefPtr",
+    "ahsize : u32",
+  },
 }
 
 return msgs
