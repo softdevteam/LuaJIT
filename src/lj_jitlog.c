@@ -362,11 +362,11 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   JITLogState *context = contextptr;
 
   switch (event) {
-/*
+
 #if LJ_HASJIT
     case VMEVENT_TRACE_EXIT:
-     jitlog_exit(context, (VMEventData_TExit*)eventdata);
-      break;
+      jitlog_exit(context, (VMEventData_TExit*)eventdata);
+      break; 
     case VMEVENT_TRACE_START:
       jitlog_tracestart(context, (GCtrace*)eventdata);
       break;
@@ -389,9 +389,8 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
     case VMEVENT_BC:
       jitlog_protoloaded(context, (GCproto*)eventdata);
       break;
-    */ 
     case VMEVENT_GC_STATECHANGE:
-      jitlog_gcstate(context, (int)(uintptr_t)eventdata);
+      /* jitlog_gcstate(context, (int)(uintptr_t)eventdata); */
       break;
     case VMEVENT_DETACH:
       free_context(context);
