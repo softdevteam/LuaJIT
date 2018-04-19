@@ -37,6 +37,7 @@ typedef struct JITLogState {
   GCfunc *lastlua;
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
+  char safestarted;
 } JITLogState;
 
 static void buf_grow(SBuf *sb, MSize sz)
@@ -108,26 +109,37 @@ static GCtab* free_pinnedtab(lua_State *L, GCtab *t)
   return t;
 }
 
-static int bufwrite_strlist(SBuf *sb, const char *const *list, int limit)
+static char* strlist_concat(const char *const *list, int limit, MSize *retsize)
 {
   const char *const *pos = list;
   int count = 0;
+  char *buff;
+  MSize total = 0;
   for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
     const char *s = *pos;
-    lj_buf_putmem(sb, s, (MSize)strlen(s)+1);
+    total += (MSize)strlen(s)+1;
   }
-  return count;
+  buff = (char *)malloc(total);
+  *retsize = total;
+
+  pos = list;
+  count = 0;
+  total = 0;
+  for (; *pos != NULL && (limit == -1 || count < limit); pos++, count++) {
+    const char *s = *pos;
+    size_t size = strlen(s)+1;
+    memcpy(buff + total, s, size);
+    total += size;
+  }
+  return buff;
 }
 
 static void write_enumdef(JITLogState *context, const char *name, const char *const *names, uint32_t namecount, int isbitflags)
 {
-  SBuf sb;
-  global_State *g = context->g;
-  lj_buf_init(mainthread(g), &sb);
-  int count = bufwrite_strlist(&sb, names, namecount);
-  lua_assert(namecount == count);
-  log_enumdef(g, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
-  lj_buf_free(g, &sb);
+  MSize size = 0;
+  char *namesblob = strlist_concat(names, namecount, &size);
+  log_enumdef(context->g, isbitflags, name, namecount, namesblob, size);
+  free(namesblob);
 }
 
 static int memorize_gcref(lua_State *L,  GCtab* t, TValue* key, uint32_t *count) {
@@ -470,10 +482,17 @@ static void gcalloc_cb(JITLogState *context, GCobj *o, uint32_t info, size_t siz
   }
 }
 
+static void jitlog_loadstage2(lua_State *L, JITLogState *context);
+
 static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *eventdata)
 {
   VMEvent2 event = (VMEvent2)eventid;
   JITLogState *context = contextptr;
+
+  if (context->safestarted && event != VMEVENT_DETACH && event != VMEVENT_STATE_CLOSING) {
+    jitlog_loadstage2(L, context);
+    context->safestarted = 0;
+  }
 
   switch (event) {
 #if LJ_HASJIT
@@ -615,11 +634,10 @@ static void write_header(JITLogState *context)
   lua_State *L = mainthread(context->g);
   char cpumodel[64] = {0};
   int model_length = getcpumodel(cpumodel);
-  SBuf sb;
-  lj_buf_init(L, &sb);
-  bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
-  log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
-  lj_buf_free(context->g, &sb);
+  MSize msgnamessz = 0;
+  char *msgnamelist = strlist_concat(msgnames, MSGTYPE_MAX, &msgnamessz);
+  log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, msgnamelist, msgnamessz, cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
+  free(msgnamelist);
 
   write_enum(context, "gcstate", gcstates);
   write_enum(context, "flushreason", flushreason);
@@ -644,28 +662,49 @@ static int jitlog_isrunning(lua_State *L)
 
 LUA_API int luaopen_jitlog(lua_State *L);
 
-LUA_API JITLogUserContext* jitlog_start(lua_State *L)
+static JITLogState *jitlog_start_safe(lua_State *L)
 {
-  JITLogState *context ;
+  JITLogState *context;
   lua_assert(!jitlog_isrunning(L));
 
   context = malloc(sizeof(JITLogState));
-  memset(context, 0 , sizeof(JITLogState));
+  memset(context, 0, sizeof(JITLogState));
   context->g = G(L);
-  context->strings = create_pinnedtab(L);
-  context->protos = create_pinnedtab(L);
-  context->funcs = create_pinnedtab(L);
+  context->safestarted = 1;
 
   SBuf *sb = &context->eventbuf;
   lj_buf_init(L, sb);
   jitlog_buf_more(sb, 1024*1024*500);
-
+  
   luaJIT_vmevent_sethook(L, jitlog_callback, context);
+  /* FIXME this currently has to be after luaJIT_vmevent_sethook because the log writer 
+     functions access G->vmevent_data.
+  */
   write_header(context);
+
   G(L)->objalloc_cb = (lua_ObjAlloc_cb)&gcalloc_cb;
   G(L)->objallocd = context;
+  return context;
+}
 
+static void jitlog_loadstage2(lua_State *L, JITLogState *context)
+{
+  lua_assert(!context->strings && !context->protos && !context->funcs);
+  context->strings = create_pinnedtab(L);
+  context->protos = create_pinnedtab(L);
+  context->funcs = create_pinnedtab(L);
   lj_lib_prereg(L, "jitlog", luaopen_jitlog, tabref(L->env));
+  context->safestarted = 0;
+}
+
+LUA_API JITLogUserContext* jitlog_start(lua_State *L)
+{
+  JITLogState *context;
+  lua_assert(!jitlog_isrunning(L));
+  context = jitlog_start_safe(L);
+  if (0) {
+    jitlog_loadstage2(L, context);
+  }
   return &context->user;
 }
 
