@@ -18,6 +18,10 @@
 #include "jitlog.h"
 
 
+typedef enum JITLogModeFlags {
+  JITLogMode_FlushOnShutdown = 1,
+} JITLogModeFlags;
+
 typedef struct JITLogState {
   SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
   JITLogUserContext user;
@@ -34,6 +38,7 @@ typedef struct JITLogState {
   GCfunc *lastlua;
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
+  JITLogModeFlags mode;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -608,6 +613,11 @@ static void jitlog_shutdown(JITLogState *context)
   free_pinnedtab(L, context->protos);
   free_pinnedtab(L, context->funcs);
   free_context(context);
+
+  /* Flush all the traces if some are directly writing to the jitlog */
+  if (context->mode & JITLogMode_FlushOnShutdown) {
+    lj_trace_flushall(L, FLUSHREASON_PROFILETOGGLE);
+  }
 }
 
 LUA_API void jitlog_close(JITLogUserContext *usrcontext)
