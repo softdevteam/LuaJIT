@@ -20,6 +20,20 @@ static SBuf *jitlog_buf_putmem(SBuf *sb, const void *q, MSize len);
 static char *jitlog_buf_more(SBuf* sb, MSize sz);
 #include "lj_jitlog_writers.h"
 
+typedef struct jl_timer {
+  uint64_t start;
+  uint64_t time;
+  uint32_t count;
+} jl_timer;
+
+struct TimerArena;
+
+/* Linked list of MCode areas. */
+typedef struct TimerArena {
+  struct TimerArena *next;	/* Next area. */
+  size_t size;		/* Size of current area. */
+  jl_timer timers[10000];
+} TimerArena;
 
 typedef enum JITLogModeFlags {
   JITLogMode_FlushOnShutdown = 1,
@@ -42,6 +56,9 @@ typedef struct JITLogState {
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
   JITLogModeFlags mode;
+  GCtab *perflabels;
+  TimerArena* timers;
+  TimerArena _timers;
 } JITLogState;
 
 static void buf_grow(SBuf *sb, MSize sz)
