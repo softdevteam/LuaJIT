@@ -65,4 +65,11 @@ typedef struct GCSnapshot
 LUA_API GCSnapshot* gcsnapshot_create(lua_State *L);
 LUA_API void gcsnapshot_free(GCSnapshot* snapshot);
 
+struct FILE;
+
+LUA_API void gcsnapshot_savetofile(GCSnapshot* snapshot, const char* path);
+LUA_API size_t gcsnapshot_getgcstats(GCSnapshot* snap, GCStats* gcstats);
+LUA_API int gcsnapshot_validate(GCSnapshot* dump);
+
+
 #endif
