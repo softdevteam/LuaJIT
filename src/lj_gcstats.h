@@ -51,4 +51,18 @@ typedef struct SnapshotObj {
 } SnapshotObj;
 
 
+typedef struct GCSnapshotHandle GCSnapshotHandle;
+
+typedef struct GCSnapshot
+{
+  uint32_t count;
+  SnapshotObj* objects;
+  char* gcmem;
+  size_t gcmem_size;
+  GCSnapshotHandle* handle;
+}GCSnapshot;
+
+LUA_API GCSnapshot* gcsnapshot_create(lua_State *L);
+LUA_API void gcsnapshot_free(GCSnapshot* snapshot);
+
 #endif
