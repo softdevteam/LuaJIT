@@ -65,6 +65,17 @@ LJLIB_CF(debug_setfenv)
   return 1;
 }
 
+LJLIB_CF(debug_getalloctime)
+{
+  global_State *g = G(L);
+  L->top = L->base+2;
+  setnumV(L->top-2, (double)g->alloctime);
+  setnumV(L->top-1, (double)g->freetime);
+  g->alloctime = 0;
+  g->freetime = 0;
+  return 2;
+}
+
 /* ------------------------------------------------------------------------ */
 
 static void settabss(lua_State *L, const char *i, const char *v)

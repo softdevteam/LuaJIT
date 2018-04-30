@@ -28,6 +28,10 @@
 #include "lj_vm.h"
 #include "lj_vmevent.h"
 
+#if !defined(_MSC_VER) || defined(__clang__)
+#include <x86intrin.h>
+#endif
+
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40
 #define GCSWEEPCOST	10
@@ -827,7 +831,14 @@ void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz)
 {
   global_State *g = G(L);
   lua_assert((osz == 0) == (p == NULL));
+  uint64_t start = __rdtsc();
   p = g->allocf(g->allocd, p, osz, nsz);
+  uint64_t end = __rdtsc();
+  if (nsz != 0) {
+    g->alloctime += end - start;
+  } else {
+    g->freetime += end - start;
+  }
   if (p == NULL && nsz > 0)
     lj_err_mem(L);
   lua_assert((nsz == 0) == (p == NULL));
@@ -840,7 +851,10 @@ void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz)
 void * LJ_FASTCALL lj_mem_newgco(lua_State *L, GCSize size)
 {
   global_State *g = G(L);
+  uint64_t start = __rdtsc();
   GCobj *o = (GCobj *)g->allocf(g->allocd, NULL, 0, size);
+  uint64_t end = __rdtsc();
+  g->alloctime += end - start;
   if (o == NULL)
     lj_err_mem(L);
   lua_assert(checkptrGC(o));
@@ -864,3 +878,11 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
   return p;
 }
 
+void lj_mem_free(global_State *g, void *p, size_t osize)
+{
+  g->gc.total -= (GCSize)osize;
+  uint64_t start = __rdtsc();
+  g->allocf(g->allocd, p, osize, 0);
+  uint64_t end = __rdtsc();
+  g->freetime += end - start;
+}

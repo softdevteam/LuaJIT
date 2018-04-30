@@ -600,6 +600,8 @@ typedef struct global_State {
   MSize strnum;		/* Number of strings in hash table. */
   lua_Alloc allocf;	/* Memory allocator. */
   void *allocd;		/* Memory allocator data. */
+  uint64_t alloctime;
+  uint64_t freetime;
   GCState gc;		/* Garbage collector. */
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   SBuf tmpbuf;		/* Temporary string buffer. */
