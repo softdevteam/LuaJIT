@@ -68,12 +68,14 @@ LJLIB_CF(debug_setfenv)
 LJLIB_CF(debug_getalloctime)
 {
   global_State *g = G(L);
-  L->top = L->base+2;
-  setnumV(L->top-2, (double)g->alloctime);
-  setnumV(L->top-1, (double)g->freetime);
-  g->alloctime = 0;
-  g->freetime = 0;
-  return 2;
+  L->top = L->base+4;
+  setnumV(L->top-4, (double)g->alloctime);
+  setnumV(L->top-3, (double)g->freetime);
+  setnumV(L->top-2, (double)g->acount);
+  setnumV(L->top-1, (double)g->fcount);
+  g->alloctime = g->freetime = 0;
+  g->acount = g->fcount = 0;
+  return 4;
 }
 
 /* ------------------------------------------------------------------------ */

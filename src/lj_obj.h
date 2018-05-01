@@ -602,6 +602,8 @@ typedef struct global_State {
   void *allocd;		/* Memory allocator data. */
   uint64_t alloctime;
   uint64_t freetime;
+  uint32_t acount;
+  uint32_t fcount;
   GCState gc;		/* Garbage collector. */
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   SBuf tmpbuf;		/* Temporary string buffer. */

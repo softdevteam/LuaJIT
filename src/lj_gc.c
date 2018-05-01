@@ -836,8 +836,10 @@ void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz)
   uint64_t end = __rdtsc();
   if (nsz != 0) {
     g->alloctime += end - start;
+    g->acount++;
   } else {
     g->freetime += end - start;
+    g->fcount++;
   }
   if (p == NULL && nsz > 0)
     lj_err_mem(L);
@@ -855,6 +857,7 @@ void * LJ_FASTCALL lj_mem_newgco(lua_State *L, GCSize size)
   GCobj *o = (GCobj *)g->allocf(g->allocd, NULL, 0, size);
   uint64_t end = __rdtsc();
   g->alloctime += end - start;
+  g->acount++;
   if (o == NULL)
     lj_err_mem(L);
   lua_assert(checkptrGC(o));
@@ -885,4 +888,5 @@ void lj_mem_free(global_State *g, void *p, size_t osize)
   g->allocf(g->allocd, p, osize, 0);
   uint64_t end = __rdtsc();
   g->freetime += end - start;
+  g->fcount++;
 }
