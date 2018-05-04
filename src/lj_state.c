@@ -181,6 +181,22 @@ static void close_state(lua_State *L)
     g->allocf(g->allocd, G2GG(g), sizeof(GG_State), 0);
 }
 
+void* je_malloc(size_t size);
+void* je_realloc(void *ptr, size_t size);
+void je_free(void *ptr);
+
+void* allocfunc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  if (nsize == 0) {
+    je_free(ptr);
+    return NULL;
+  } else if (ptr == NULL) {
+    return je_malloc(nsize);
+  } else {
+    return je_realloc(ptr, nsize);
+  }
+}
+
 #if LJ_64 && !LJ_GC64 && !(defined(LUAJIT_USE_VALGRIND) && defined(LUAJIT_USE_SYSMALLOC))
 lua_State *lj_state_newstate(lua_Alloc f, void *ud)
 #else
