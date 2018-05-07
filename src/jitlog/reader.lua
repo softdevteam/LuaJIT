@@ -669,6 +669,12 @@ function logreader:readheader(buff, buffsize, info)
   info.cpumodel = header:get_cpumodel()
   info.starttime = header.starttime
   self:log_msg("header", "LogHeader: Version %d, OS %s, CPU %s", info.version, info.os, info.cpumodel)
+  
+  local tscfreq = string.match(info.cpumodel:lower(), "@ (.+)ghz$")
+  
+  if tscfreq ~= nil then
+    info.tscfreq = tonumber(tscfreq)*1000000000
+  end
 
   local file_msgnames = header:get_msgnames()
   info.msgnames = file_msgnames
@@ -784,6 +790,7 @@ end
 
 function logreader:processheader(header)
   self.starttime = header.starttime
+  self.tscfreq = header.tscfreq
 
   -- Make the msgtype enum for this file
   local msgtype = make_enum(header.msgnames)
