@@ -125,7 +125,7 @@ GCtrace * LJ_FASTCALL lj_trace_alloc(lua_State *L, GCtrace *T)
   size_t sz = sztr + szins +
 	      T->nsnap*sizeof(SnapShot) +
 	      T->nsnapmap*sizeof(SnapEntry);
-  GCtrace *T2 = lj_mem_newt(L, (MSize)sz, GCtrace);
+  GCtrace *T2 = lj_mem_newgcot(L, (MSize)sz, GCtrace);
   char *p = (char *)T2 + sztr;
   T2->gct = ~LJ_TTRACE;
   T2->marked = 0;
@@ -146,9 +146,6 @@ static void trace_save(jit_State *J, GCtrace *T)
   size_t szins = (J->cur.nins-J->cur.nk)*sizeof(IRIns);
   char *p = (char *)T + sztr;
   memcpy(T, &J->cur, sizeof(GCtrace));
-  setgcrefr(T->nextgc, J2G(J)->gc.root);
-  setgcrefp(J2G(J)->gc.root, T);
-  newwhite(J2G(J), T);
   T->gct = ~LJ_TTRACE;
   T->ir = (IRIns *)p - J->cur.nk;  /* The IR has already been copied above. */
   p += szins;
@@ -173,9 +170,6 @@ void LJ_FASTCALL lj_trace_free(global_State *g, GCtrace *T)
       J->freetrace = T->traceno;
     setgcrefnull(J->trace[T->traceno]);
   }
-  lj_mem_free(g, T,
-    ((sizeof(GCtrace)+7)&~7) + (T->nins-T->nk)*sizeof(IRIns) +
-    T->nsnap*sizeof(SnapShot) + T->nsnapmap*sizeof(SnapEntry));
 }
 
 /* Re-enable compiling a prototype by unpatching any modified bytecode. */
@@ -344,6 +338,17 @@ void lj_trace_initstate(global_State *g)
   J->k32[LJ_K32_M2P64] = 0xdf800000;
 #endif
 #endif
+}
+
+void lj_trace_freeall(global_State *g)
+{
+  jit_State *J = G2J(g);
+  for (int i = J->sizetrace-1; i > 0; i--) {
+    GCtrace *t = (GCtrace *)gcref(J->trace[i]);
+    if (t) {
+      lj_trace_free(g, t);
+    }
+  }
 }
 
 /* Free everything associated with the JIT compiler state. */
@@ -840,7 +845,7 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   lua_State *L = J->L;
   ExitState *ex = (ExitState *)exptr;
   ExitDataCP exd;
-  int errcode;
+  int errcode, bumpoverflow = 0;
   const BCIns *pc;
   void *cf;
   GCtrace *T;
@@ -859,6 +864,11 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   lua_assert(T != NULL && J->exitno < T->nsnap);
   exd.J = J;
   exd.exptr = exptr;
+  /* Could be a false positive but allocate a new arena to avoid retriggering */
+  if (!arena_canbump(G(L)->arena, 3)) {
+    bumpoverflow = 1;
+  }
+
   errcode = lj_vm_cpcall(L, NULL, &exd, trace_exit_cp);
   if (errcode)
     return -errcode;  /* Return negated error code. */
@@ -874,6 +884,9 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
     eventdata.spill = &ex->spill;
     eventdata.spill_size = sizeof(ex->spill);
   );
+  if ((((intptr_t)mref(G(L)->gc.grayssb, GCRef)) & GRAYSSB_MASK) == 0) {
+    lj_gc_emptygrayssb(G(L));
+  }
 
   if (!(LJ_HASPROFILE && (G(L)->hookmask & HOOK_PROFILE)))
     lj_vmevent_send(L, TEXIT,
@@ -888,7 +901,11 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   setcframe_pc(cf, pc);
   if (LJ_HASPROFILE && (G(L)->hookmask & HOOK_PROFILE)) {
     /* Just exit to interpreter. */
-  } else if (G(L)->gc.state == GCSatomic || G(L)->gc.state == GCSfinalize) {
+  } else if (bumpoverflow && G(L)->gc.state == GCSpause) {
+    if (!arena_canbump(G(L)->arena, 3)) {
+      lj_gc_findnewarena(L, 0);
+    }
+  } else if (bumpoverflow || G(L)->gc.state == GCSatomic || G(L)->gc.state == GCSfinalize) {
     if (!(G(L)->hookmask & HOOK_GC))
       lj_gc_step(L);  /* Exited because of GC: drive GC forward. */
   } else {

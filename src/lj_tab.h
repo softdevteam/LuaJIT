@@ -70,4 +70,17 @@ LJ_FUNC TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key);
 LJ_FUNCA int lj_tab_next(lua_State *L, GCtab *t, TValue *key);
 LJ_FUNCA MSize LJ_FASTCALL lj_tab_len(GCtab *t);
 
+#define hascolo_array(t) (((t)->colo & 1) != 0)
+#define hascolo_hash(t) (((t)->colo & 2) != 0)
+
+void lj_gc_setfinalizable(lua_State *L, GCobj *o, GCtab *mt);
+
+static LJ_AINLINE void lj_tab_setmt(lua_State *L, GCtab *t, GCtab *mt)
+{
+  if (LJ_52 && mt && !(t->marked & LJ_GC_SETFINALIZBLE)) {
+    lj_gc_setfinalizable(L, (GCobj *)t, mt);
+  }
+  setgcref(t->metatable, obj2gco(mt));
+}
+
 #endif

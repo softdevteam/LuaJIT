@@ -11,6 +11,7 @@
 #include "lj_err.h"
 #include "lj_str.h"
 #include "lj_char.h"
+#include "lj_gcarena.h"
 
 /* -- String helpers ------------------------------------------------------ */
 
@@ -153,8 +154,11 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
     while (o != NULL) {
       GCstr *sx = gco2str(o);
       if (sx->len == len && str_fastcmp(str, strdata(sx), len) == 0) {
-	/* Resurrect if dead. Can only happen with fixstring() (keywords). */
-	if (isdead(g, o)) flipwhite(o);
+	lua_assert(!isdead(g, o) && (g->gc.state != GCSsweep || isblack(g, o)));
+	/* Resurrect if dead. */
+	if (g->gc.state == GCSsweepstring && iswhitefast(o)) {
+	  toblack(g, o);
+	}
 	return sx;  /* Return existing string. */
       }
       o = gcnext(o);
@@ -163,16 +167,18 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
     while (o != NULL) {
       GCstr *sx = gco2str(o);
       if (sx->len == len && memcmp(str, strdata(sx), len) == 0) {
-	/* Resurrect if dead. Can only happen with fixstring() (keywords). */
-	if (isdead(g, o)) flipwhite(o);
+	lua_assert(!isdead(g, o) && (g->gc.state != GCSsweep || isblack(g, o)));
+	/* Resurrect if dead. */
+	if (g->gc.state == GCSsweepstring && iswhitefast(o)) {
+	  toblack(g, o);
+	}
 	return sx;  /* Return existing string. */
       }
       o = gcnext(o);
     }
   }
   /* Nope, create a new string. */
-  s = lj_mem_newt(L, sizeof(GCstr)+len+1, GCstr);
-  newwhite(g, s);
+  s = lj_mem_newgcoUL(L, sizeof(GCstr)+len+1, GCstr);
   s->gct = ~LJ_TSTR;
   s->len = len;
   s->hash = h;
@@ -192,6 +198,6 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
 void LJ_FASTCALL lj_str_free(global_State *g, GCstr *s)
 {
   g->strnum--;
-  lj_mem_free(g, s, sizestring(s));
+  lj_mem_freegco(g, s, sizestring(s));
 }
 

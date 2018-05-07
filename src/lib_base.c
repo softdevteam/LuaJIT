@@ -133,7 +133,7 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
   GCtab *mt = lj_lib_checktabornil(L, 2);
   if (!tvisnil(lj_meta_lookup(L, L->base, MM_metatable)))
     lj_err_caller(L, LJ_ERR_PROTMT);
-  setgcref(t->metatable, obj2gco(mt));
+  lj_tab_setmt(L, t, mt);
   if (mt) { lj_gc_objbarriert(L, t, mt); }
   settabV(L, L->base-1-LJ_FR2, t);
   return FFH_RES(1);
@@ -435,10 +435,45 @@ LJLIB_CF(dofile)
 
 /* -- Base library: GC control -------------------------------------------- */
 
+static GCArena *checkarg_arena(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+
+  if (!tvisgcv(o)) {
+    lj_err_argtype(L, 1, "gc object");
+  }
+
+  return ptr2arena(gcV(o));
+}
+
 LJLIB_CF(gcinfo)
 {
-  setintV(L->top++, (int32_t)(G(L)->gc.total >> 10));
-  return 1;
+  if ((L->top-L->base) > 0) {
+    GCArena *arena = checkarg_arena(L, 1);
+
+    /* Requested stats for a particular arena id */
+    if (tvisnumber(L->base)) {
+      int32_t i = lj_lib_checkint(L, 1);  
+      if (i == -1) {
+        /* Return the arena count for -1 arena id */
+        setintV(L->top++, G(L)->gc.arenastop);
+        return 1;
+      } else if(i >= 0 && (MSize)i < G(L)->gc.arenastop) {
+        arena = lj_gc_arenaref(G(L), i);
+      } else {
+        return 0;
+      }
+    } else {
+      arena = checkarg_arena(L, 1);
+    }
+
+    lua_pushinteger(L, arena_objcount(arena));
+    lua_pushinteger(L, arena_totalobjmem(arena));
+    return 2;
+  } else {
+    setintV(L->top++, (int32_t)(G(L)->gc.total >> 10));
+    return 1;
+  }
 }
 
 LJLIB_CF(collectgarbage)
@@ -457,6 +492,46 @@ LJLIB_CF(collectgarbage)
   }
   L->top++;
   return 1;
+}
+
+LJLIB_CF(createarena)
+{
+  int travobjs = 1;
+  GCArena *arena = lj_gc_newarena(L, travobjs ? ArenaFlag_TravObjs : 0);
+  GCArena *oldarena = lj_gc_setactive_arena(L, arena, travobjs);
+  if (travobjs) {
+    lua_newuserdata(L, 0);
+  }
+  lj_gc_setactive_arena(L, oldarena, travobjs);
+  return 1;
+}
+
+LJLIB_CF(setarena)
+{
+  TValue *tv = lj_lib_checkany(L, 1);
+  GCArena *arena;
+  TValue *atypetv = (L->base + 1) < L->top ? L->base + 1 : NULL;
+  int arenatype = -1;
+
+  if (!tvisgcv(tv)) {
+    lj_err_argtype(L, 1, "gc object");
+  }
+  arena = ptr2arena(gcV(tv));
+
+  if (atypetv && tvisnum(atypetv)) {
+    arenatype = lj_lib_checkint(L, 2);
+    if(arenatype != 0 && arenatype != 1 && arenatype != -1)
+      lj_err_callermsg(L, "arena type must be 0(non traversable objects), 1(traversable objects) or -1(both)");
+  }
+
+  if (arenatype != -1) {
+    lj_gc_setactive_arena(L, arena, arenatype);
+  } else {
+    lj_gc_setactive_arena(L, arena, 0);
+    lj_gc_setactive_arena(L, arena, 1);
+  }
+
+  return 0;
 }
 
 /* -- Base library: miscellaneous functions ------------------------------- */
@@ -524,6 +599,18 @@ LJLIB_CF(print)
     fwrite(str, 1, size, stdout);
   }
   putchar('\n');
+  return 0;
+}
+
+#include "lj_timer.h"
+
+LJLIB_CF(perfmarker)
+{
+  GCstr *label = lj_lib_checkstr(L, 1);
+  int32_t flags = lj_lib_optint(L, 2, 0);
+#ifdef LJ_ENABLESTATS
+  log_stringmarker(flags, strdata(label));
+#endif
   return 0;
 }
 

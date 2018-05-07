@@ -684,7 +684,7 @@ LUA_API void lua_pushcclosure(lua_State *L, lua_CFunction f, int n)
   while (n--)
     copyTV(L, &fn->c.upvalue[n], L->top+n);
   setfuncV(L, L->top, fn);
-  lua_assert(iswhite(obj2gco(fn)));
+  //lua_assert(iswhite(obj2gco(fn)));
   incr_top(L);
 }
 
@@ -1021,11 +1021,13 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
   }
   g = G(L);
   if (tvistab(o)) {
-    setgcref(tabV(o)->metatable, obj2gco(mt));
-    if (mt)
+    lj_tab_setmt(L, tabV(o), mt);
+    if (mt) {
       lj_gc_objbarriert(L, tabV(o), mt);
+    }
   } else if (tvisudata(o)) {
-    setgcref(udataV(o)->metatable, obj2gco(mt));
+    GCudata *ud = udataV(o);
+    lj_udata_setmt(L, ud, mt);
     if (mt)
       lj_gc_objbarrier(L, udataV(o), mt);
   } else {

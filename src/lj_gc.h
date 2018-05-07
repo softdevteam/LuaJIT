@@ -6,44 +6,58 @@
 #ifndef _LJ_GC_H
 #define _LJ_GC_H
 
-#include "lj_obj.h"
+#include "lj_gcarena.h"
 
-/* Garbage collector states. Order matters. */
+/* Garbage collector states. Order and bits used matter. */
 enum {
-  GCSpause, GCSpropagate, GCSatomic, GCSsweepstring, GCSsweep, GCSfinalize
+  GCSpause,
+  /* Only GCSpropagate and GCSatomic can have LSB set see GCSneedsbarrier */
+  GCSpropagate   = 1,
+  GCSatomic      = 3,
+  GCSsweepstring = 4,
+  GCSsweep       = 6,
+  GCSfinalize    = 16,
+  /* GC state is GCSpropagate/atomic or GC is in minor collection mode */
+  GCSneedsbarrier = 0xff01,
+  GCSmakeblack = 4,
 };
 
 /* Bitmasks for marked field of GCobj. */
-#define LJ_GC_WHITE0	0x01
-#define LJ_GC_WHITE1	0x02
-#define LJ_GC_BLACK	0x04
+#define LJ_GC_GRAY	0x01
 #define LJ_GC_FINALIZED	0x08
 #define LJ_GC_WEAKKEY	0x08
 #define LJ_GC_WEAKVAL	0x10
 #define LJ_GC_CDATA_FIN	0x10
 #define LJ_GC_FIXED	0x20
-#define LJ_GC_SFIXED	0x40
-
-#define LJ_GC_WHITES	(LJ_GC_WHITE0 | LJ_GC_WHITE1)
-#define LJ_GC_COLORS	(LJ_GC_WHITES | LJ_GC_BLACK)
+#define LJ_GC_COLORS	(LJ_GC_GRAY)
 #define LJ_GC_WEAK	(LJ_GC_WEAKKEY | LJ_GC_WEAKVAL)
 
 /* Macros to test and set GCobj colors. */
-#define iswhite(x)	((x)->gch.marked & LJ_GC_WHITES)
-#define isblack(x)	((x)->gch.marked & LJ_GC_BLACK)
-#define isgray(x)	(!((x)->gch.marked & (LJ_GC_BLACK|LJ_GC_WHITES)))
+#define isgray(x)	((obj2gco(x)->gch.marked & LJ_GC_GRAY))
+#define setgray(x)	(obj2gco(x)->gch.marked |= LJ_GC_GRAY)
+#define cleargray(x)	(obj2gco(x)->gch.marked &= ~LJ_GC_GRAY)
 #define tviswhite(x)	(tvisgcv(x) && iswhite(gcV(x)))
-#define otherwhite(g)	(g->gc.currentwhite ^ LJ_GC_WHITES)
-#define isdead(g, v)	((v)->gch.marked & otherwhite(g) & LJ_GC_WHITES)
+#define isdead(g, x)	(!gc_ishugeblock(x) ? arenaobj_isdead(x) : hugeblock_isdead(g, x))
 
-#define curwhite(g)	((g)->gc.currentwhite & LJ_GC_WHITES)
-#define newwhite(g, x)	(obj2gco(x)->gch.marked = (uint8_t)curwhite(g))
-#define makewhite(g, x) \
-  ((x)->gch.marked = ((x)->gch.marked & (uint8_t)~LJ_GC_COLORS) | curwhite(g))
-#define flipwhite(x)	((x)->gch.marked ^= LJ_GC_WHITES)
+#define iswhitefast(x)	(gc_ishugeblock(x) || arenaobj_iswhite(x))
+#define isblackfast(x)	(gc_ishugeblock(x) || !arenaobj_iswhite(x))
+#define tviswhitefast(x)  (tvisgcv(x) && iswhitefast(x))
+
 #define black2gray(x)	((x)->gch.marked &= (uint8_t)~LJ_GC_BLACK)
-#define fixstring(s)	((s)->marked |= LJ_GC_FIXED)
+#define fixstring(L, s)	lj_gc_setfixed(L, (GCobj *)(s))
 #define markfinalized(x)	((x)->gch.marked |= LJ_GC_FINALIZED)
+
+static LJ_AINLINE void makewhite(global_State *g, GCobj *o)
+{
+  if (!gc_ishugeblock(o)) {
+    arena_clearcellmark(ptr2arena(o), ptr2cell(o));
+  } else {
+    hugeblock_makewhite(g, o);
+  }
+}
+
+void lj_gc_setfixed(lua_State *L, GCobj *o);
+void lj_gc_setfinalizable(lua_State *L, GCobj *o, GCtab *mt);
 
 /* Collector. */
 LJ_FUNC size_t lj_gc_separateudata(global_State *g, int all);
@@ -53,6 +67,7 @@ LJ_FUNC void lj_gc_finalize_cdata(lua_State *L);
 #else
 #define lj_gc_finalize_cdata(L)		UNUSED(L)
 #endif
+LJ_FUNC void lj_gc_init(lua_State *L);
 LJ_FUNC void lj_gc_freeall(global_State *g);
 LJ_FUNCA int LJ_FASTCALL lj_gc_step(lua_State *L);
 LJ_FUNCA void LJ_FASTCALL lj_gc_step_fixtop(lua_State *L);
@@ -60,6 +75,30 @@ LJ_FUNCA void LJ_FASTCALL lj_gc_step_fixtop(lua_State *L);
 LJ_FUNC int LJ_FASTCALL lj_gc_step_jit(global_State *g, MSize steps);
 #endif
 LJ_FUNC void lj_gc_fullgc(lua_State *L);
+
+/* GC Arena */
+LJ_FUNC union GCArena *lj_gc_newarena(lua_State *L, uint32_t flags);
+LJ_FUNC void lj_gc_freearena(global_State *g, union GCArena *arena);
+LJ_FUNC GCArena *lj_gc_findnewarena(lua_State *L, int travobj);
+LJ_FUNC int lj_gc_getarenaid(global_State *g, void* arena);
+LJ_FUNC union GCArena *lj_gc_setactive_arena(lua_State *L, union GCArena *arena, int travobjs);
+#define lj_gc_arenaref(g, i) ((GCArena *)(((uintptr_t)(g)->gc.arenas[(i)]) & ~(ArenaCellMask)))
+#define lj_gc_arenaflags(g, i) ((uint32_t)(((uintptr_t)(g)->gc.arenas[(i)]) & ArenaCellMask))
+#define lj_gc_curarena(g) lj_gc_arenaref(g, (g)->gc.curarena)
+
+static LJ_AINLINE void lj_gc_setarenaflag(global_State *g, MSize i, uint32_t flags)
+{
+  lua_assert((flags & ~ArenaCellMask) == 0);
+  //GCArena *arena = lj_gc_arenaref(g, i);
+  //arena->
+  g->gc.arenas[i] = (GCArena *)(((uintptr_t)g->gc.arenas[i]) | flags);
+}
+
+static LJ_AINLINE void lj_gc_cleararenaflags(global_State *g, MSize i, uint32_t flags)
+{
+  lua_assert((flags & ~ArenaCellMask) == 0);
+  g->gc.arenas[i] = (GCArena *)(((uintptr_t)g->gc.arenas[i]) & ~flags);
+}
 
 /* GC check: drive collector forward if the GC threshold has been reached. */
 #define lj_gc_check(L) \
@@ -77,38 +116,55 @@ LJ_FUNC void lj_gc_closeuv(global_State *g, GCupval *uv);
 LJ_FUNC void lj_gc_barriertrace(global_State *g, uint32_t traceno);
 #endif
 
-/* Move the GC propagation frontier back for tables (make it gray again). */
-static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
+void LJ_FASTCALL lj_gc_emptygrayssb(global_State *g);
+void LJ_FUNC lj_gc_resetgrayssb(global_State *g);
+/* Must be a power of 2 */
+#define GRAYSSBSZ 64 /* Largest mask that fits in 1 byte imm */
+#define GRAYSSB_MASK ((GRAYSSBSZ*sizeof(GCRef))-1)
+
+
+static LJ_AINLINE void lj_gc_appendgrayssb(global_State *g, GCobj *o)
 {
-  GCobj *o = obj2gco(t);
-  lua_assert(isblack(o) && !isdead(g, o));
-  lua_assert(g->gc.state != GCSfinalize && g->gc.state != GCSpause);
-  black2gray(o);
-  setgcrefr(t->gclist, g->gc.grayagain);
-  setgcref(g->gc.grayagain, o);
+  GCRef *ssb = mref(g->gc.grayssb, GCRef);
+  lua_assert(!isgray(o));
+  setgcrefp(*ssb, o);
+  ssb++;
+  setmref(g->gc.grayssb, ssb);
+  if (LJ_UNLIKELY((((uintptr_t)ssb) & GRAYSSB_MASK) == 0)) {
+    lj_gc_emptygrayssb(g);
+  }
+}
+
+/* Move the GC propagation frontier back for tables (make it gray again). */
+static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t, GCobj *o)
+{
+  lua_assert(!arenaobj_isdead(t));
+  /* arenaobj_isblack(t) */
+  if (g->gc.statebits & GCSneedsbarrier) {
+    lj_gc_appendgrayssb(g, obj2gco(t));
+  }
+  setgray(t);
 }
 
 /* Barrier for stores to table objects. TValue and GCobj variant. */
 #define lj_gc_anybarriert(L, t)  \
-  { if (LJ_UNLIKELY(isblack(obj2gco(t)))) lj_gc_barrierback(G(L), (t)); }
+  { if (LJ_UNLIKELY(!isgray(t))) lj_gc_barrierback(G(L), (t), NULL); }
 #define lj_gc_barriert(L, t, tv) \
-  { if (tviswhite(tv) && isblack(obj2gco(t))) \
-      lj_gc_barrierback(G(L), (t)); }
+  { if (!isgray(t) && tvisgcv(tv)) lj_gc_barrierback(G(L), (t), gcval(tv)); }
 #define lj_gc_objbarriert(L, t, o)  \
-  { if (iswhite(obj2gco(o)) && isblack(obj2gco(t))) \
-      lj_gc_barrierback(G(L), (t)); }
+  { if (!isgray(t)) lj_gc_barrierback(G(L), (t), obj2gco(o)); }
 
 /* Barrier for stores to any other object. TValue and GCobj variant. */
 #define lj_gc_barrier(L, p, tv) \
-  { if (tviswhite(tv) && isblack(obj2gco(p))) \
+  { if (!isgray(obj2gco(p)) && tvisgcv(tv)) \
       lj_gc_barrierf(G(L), obj2gco(p), gcV(tv)); }
 #define lj_gc_objbarrier(L, p, o) \
-  { if (iswhite(obj2gco(o)) && isblack(obj2gco(p))) \
-      lj_gc_barrierf(G(L), obj2gco(p), obj2gco(o)); }
+  { if (!isgray(obj2gco(p))) lj_gc_barrierf(G(L), obj2gco(p), obj2gco(o)); }
 
 /* Allocator. */
 LJ_FUNC void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz);
 LJ_FUNC void * LJ_FASTCALL lj_mem_newgco(lua_State *L, GCSize size);
+LJ_FUNC void * LJ_FASTCALL lj_mem_newcd(lua_State *L, GCSize size);
 LJ_FUNC void *lj_mem_grow(lua_State *L, void *p,
 			  MSize *szp, MSize lim, MSize esz);
 
@@ -116,6 +172,7 @@ LJ_FUNC void *lj_mem_grow(lua_State *L, void *p,
 
 static LJ_AINLINE void lj_mem_free(global_State *g, void *p, size_t osize)
 {
+  lua_assert(!p || ((((size_t*)p)[-1] & ~7)-8) >= osize);
   g->gc.total -= (GCSize)osize;
   g->allocf(g->allocd, p, osize, 0);
 }
@@ -127,8 +184,39 @@ static LJ_AINLINE void lj_mem_free(global_State *g, void *p, size_t osize)
   ((p) = (t *)lj_mem_grow(L, (p), &(n), (m), (MSize)sizeof(t)))
 #define lj_mem_freevec(g, p, n, t)	lj_mem_free(g, (p), (n)*sizeof(t))
 
-#define lj_mem_newobj(L, t)	((t *)lj_mem_newgco(L, sizeof(t)))
 #define lj_mem_newt(L, s, t)	((t *)lj_mem_new(L, (s)))
 #define lj_mem_freet(g, p)	lj_mem_free(g, (p), sizeof(*(p)))
+
+GCobj *lj_mem_newgco_t(lua_State * L, GCSize osize, uint32_t gct);
+GCobj *lj_mem_newagco(lua_State *L, GCSize osize, MSize align);
+
+void *lj_mem_newgcvecsz(lua_State *L, GCSize osize);
+
+void lj_mem_freegco(global_State *g, void *p, GCSize osize);
+void *lj_mem_reallocgc(lua_State *L, GCobj * owner, void *p, GCSize oldsz, GCSize newsz);
+void lj_mem_shrinkobj(lua_State *L, GCobj *o, MSize osize, MSize newsz);
+
+enum gctid {
+  gctid_GCstr = ~LJ_TSTR,
+  gctid_GCupval = ~LJ_TUPVAL,
+  gctid_lua_State = ~LJ_TTHREAD,
+  gctid_GCproto = ~LJ_TPROTO,
+  gctid_GCfunc = ~LJ_TFUNC,
+  gctid_GCudata = ~LJ_TUDATA,
+  gctid_GCtab = ~LJ_TTAB,
+  gctid_GCtrace = ~LJ_TTRACE,
+};
+
+#define lj_mem_newobj(L, t)	((t *)lj_mem_newgco_t(L, sizeof(t), gctid_##t))
+#define lj_mem_newgcot(L, s, t)	((t *)lj_mem_newgco_t(L, (s), gctid_##t))
+#define lj_mem_newgcoUL(L, s, t) ((t *)lj_mem_newgco_t(L, (s), gctid_##t))
+
+#define lj_mem_freetgco(g, p)	lj_mem_freegco(g, (p), sizeof(*(p)))
+
+#define lj_mem_newgcvec(L, owner, n, t)	((t *)lj_mem_reallocgc(L, obj2gco(owner), NULL, 0, (GCSize)((n)*sizeof(t))))
+#define lj_mem_freegcvec(g, p, n, t)	lj_mem_freegco(g, (p), (n)*sizeof(t))
+
+#define lj_mem_reallocgcvec(L, owner, p, on, n, t) \
+  ((p) = (t *)lj_mem_reallocgc(L, obj2gco(owner), p, (on)*sizeof(t), (GCSize)((n)*sizeof(t))))
 
 #endif

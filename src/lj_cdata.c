@@ -31,7 +31,7 @@ GCcdata *lj_cdata_newv(lua_State *L, CTypeID id, CTSize sz, CTSize align)
   global_State *g;
   MSize extra = sizeof(GCcdataVar) + sizeof(GCcdata) +
 		(align > CT_MEMALIGN ? (1u<<align) - (1u<<CT_MEMALIGN) : 0);
-  char *p = lj_mem_newt(L, extra + sz, char);
+  char *p = (char*)lj_mem_newcd(L, extra + sz);
   uintptr_t adata = (uintptr_t)p + sizeof(GCcdataVar) + sizeof(GCcdata);
   uintptr_t almask = (1u << align) - 1u;
   GCcdata *cd = (GCcdata *)(((adata + almask) & ~almask) - sizeof(GCcdata));
@@ -40,22 +40,40 @@ GCcdata *lj_cdata_newv(lua_State *L, CTypeID id, CTSize sz, CTSize align)
   cdatav(cd)->extra = extra;
   cdatav(cd)->len = sz;
   g = G(L);
-  setgcrefr(cd->nextgc, g->gc.root);
-  setgcref(g->gc.root, obj2gco(cd));
-  newwhite(g, obj2gco(cd));
   cd->marked |= 0x80;
   cd->gct = ~LJ_TCDATA;
   cd->ctypeid = id;
   return cd;
 }
 
+GCcdata *lj_cdata_newalign(CTState *cts, CTypeID id, CTSize sz, CTSize align)
+{
+  GCcdata *cd;
+#ifdef LUA_USE_ASSERT
+  CType *ct = ctype_raw(cts, id);
+  lua_assert((ctype_hassize(ct->info) ? ct->size : CTSIZE_PTR) == sz);
+#endif
+  align = (1u << align);
+  if (align <= CellSize) {
+    align = sizeof(GCcdata);
+  }
+
+  cd = (GCcdata *)lj_mem_newagco(cts->L, sizeof(GCcdata) + sz, align);
+  cd->gct = ~LJ_TCDATA;
+  cd->ctypeid = ctype_check(cts, id);
+  return cd;
+}
+
 /* Allocate arbitrary C data object. */
 GCcdata *lj_cdata_newx(CTState *cts, CTypeID id, CTSize sz, CTInfo info)
 {
-  if (!(info & CTF_VLA) && ctype_align(info) <= CT_MEMALIGN)
+  if (!(info & CTF_VLA) && ctype_align(info) <= CT_MEMALIGN) {
     return lj_cdata_new(cts, id, sz);
-  else
+  } else if (!(info & CTF_VLA)) {
+    return lj_cdata_newalign(cts, id, sz, ctype_align(info));
+  } else {
     return lj_cdata_newv(cts->L, id, sz, ctype_align(info));
+  }
 }
 
 /* Free a C data object. */
@@ -78,9 +96,9 @@ void LJ_FASTCALL lj_cdata_free(global_State *g, GCcdata *cd)
     CTSize sz = ctype_hassize(ct->info) ? ct->size : CTSIZE_PTR;
     lua_assert(ctype_hassize(ct->info) || ctype_isfunc(ct->info) ||
 	       ctype_isextern(ct->info));
-    lj_mem_free(g, cd, sizeof(GCcdata) + sz);
+    lj_mem_freegco(g, cd, sizeof(GCcdata) + sz);
   } else {
-    lj_mem_free(g, memcdatav(cd), sizecdatav(cd));
+    lj_mem_freegco(g, memcdatav(cd), sizecdatav(cd));
   }
 }
 

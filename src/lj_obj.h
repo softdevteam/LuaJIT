@@ -24,6 +24,8 @@ typedef uint64_t GCSize;
 typedef uint32_t GCSize;
 #endif
 
+#define round_alloc(size) lj_round(size, 16)
+
 /* Memory reference */
 typedef struct MRef {
 #if LJ_GC64
@@ -55,6 +57,8 @@ typedef struct GCRef {
   uint32_t gcptr32;	/* Pseudo 32 bit pointer. */
 #endif
 } GCRef;
+
+#define LJ_GC_SETFINALIZBLE	0x08
 
 /* Common GC header for all collectable objects. */
 #define GCHeader	GCRef nextgc; uint8_t marked; uint8_t gct
@@ -496,6 +500,7 @@ typedef struct GCtab {
 } GCtab;
 
 #define sizetabcolo(n)	((n)*sizeof(TValue) + sizeof(GCtab))
+#define sizetabcoloh(n)	((n)*sizeof(Node) + sizeof(GCtab))
 #define tabref(r)	(&gcref((r))->tab)
 #define noderef(r)	(mref((r), Node))
 #define nextnode(n)	(mref((n)->next, Node))
@@ -571,17 +576,35 @@ typedef enum {
 #define basemt_obj(g, o)	((g)->gcroot[GCROOT_BASEMT+itypemap(o)])
 #define mmname_str(g, mm)	(strref((g)->gcroot[GCROOT_MMNAME+(mm)]))
 
+typedef enum {
+  GCFLAG_TOMINOR,
+} GCFlag;
+
+typedef struct PQueue {
+  MSize size;
+  MSize count;
+  union GCArena** array;
+} PQueue;
+
 typedef struct GCState {
   GCSize total;		/* Memory currently allocated. */
+  GCSize hugemem;	/* Memory currently allocated for huge objects. */
   GCSize threshold;	/* Memory threshold. */
-  uint8_t currentwhite;	/* Current white color. */
-  uint8_t state;	/* GC state. */
-  uint8_t nocdatafin;	/* No cdata finalizer called. */
+  union {
+    struct {
+      uint8_t state;	/* GC state. */
+      uint8_t isminor;      /* Current GC cycle is a minor collection. */
+      uint8_t nocdatafin;	/* No cdata finalizer called. */
+      uint8_t stateflags;
+    };
+    uint32_t statebits;
+  };
   uint8_t gcexit;
   MSize sweepstr;	/* Sweep position in string table. */
   GCRef root;		/* List of all collectable objects. */
   MRef sweep;		/* Sweep position in root list. */
   GCRef gray;		/* List of gray objects. */
+  MRef grayssb;         /* Current top  of gray SSB buffer */
   GCRef grayagain;	/* List of objects for atomic traversal. */
   GCRef weak;		/* List of weak tables (to be cleared). */
   GCRef mmudata;	/* List of userdata (to be finalized). */
@@ -589,23 +612,33 @@ typedef struct GCState {
   GCSize estimate;	/* Estimate of memory actually in use. */
   MSize stepmul;	/* Incremental GC step granularity. */
   MSize pause;		/* Pause between successive GC cycles. */
+  MSize deadnum;        /* Number of dead objects swept this GC cycles. */
+  union GCArena **arenas;/* List of currently allocated arenas */
+  MSize curarena;	/* Current arena being processed by the GC */
+  MSize arenassz;
+  MSize arenastop; /* Top of the arena list */
+  struct ArenaFreeList* freelists;
+  PQueue greypq;
 } GCState;
+
 
 /* Global state, shared by all threads of a Lua universe. */
 typedef struct global_State {
+  GCstr strempty;	/* Empty string. */
+  uint8_t stremptyz;	/* Zero terminator of empty string. */
+  uint8_t hookmask;	/* Hook mask. */
+  uint8_t dispatchmode;	/* Dispatch mode. */
+  uint8_t vmevmask;	/* VM event mask. */
   GCRef *strhash;	/* String hash table (hash chain anchors). */
   MSize strmask;	/* String hash mask (size of hash table - 1). */
   MSize strnum;		/* Number of strings in hash table. */
   lua_Alloc allocf;	/* Memory allocator. */
   void *allocd;		/* Memory allocator data. */
   GCState gc;		/* Garbage collector. */
+  union GCArena *arena;
+  union GCArena *travarena;  /* Traversal GC object arena */
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   SBuf tmpbuf;		/* Temporary string buffer. */
-  GCstr strempty;	/* Empty string. */
-  uint8_t stremptyz;	/* Zero terminator of empty string. */
-  uint8_t hookmask;	/* Hook mask. */
-  uint8_t dispatchmode;	/* Dispatch mode. */
-  uint8_t vmevmask;	/* VM event mask. */
   GCRef mainthref;	/* Link to main thread. */
   TValue registrytv;	/* Anchor for registry. */
   TValue tmptv, tmptv2;	/* Temporary TValues. */

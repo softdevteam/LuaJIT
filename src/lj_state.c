@@ -27,6 +27,7 @@
 #include "lj_vm.h"
 #include "lj_lex.h"
 #include "lj_alloc.h"
+#include "lj_gcarena.h"
 #include "luajit.h"
 #include "lj_vmevent.h"
 
@@ -145,6 +146,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   global_State *g = G(L);
   UNUSED(dummy);
   UNUSED(ud);
+  lj_gc_init(L);
   stack_init(L, L);
   /* NOBARRIER: State initialization, all objects are white. */
   setgcref(L->env, obj2gco(lj_tab_new(L, 0, LJ_MIN_GLOBAL)));
@@ -152,7 +154,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   lj_str_resize(L, LJ_MIN_STRTAB-1);
   lj_meta_init(L);
   lj_lex_init(L);
-  fixstring(lj_err_str(L, LJ_ERR_ERRMEM));  /* Preallocate memory error msg. */
+  fixstring(L, lj_err_str(L, LJ_ERR_ERRMEM));  /* Preallocate memory error msg. */
   g->gc.threshold = 4*g->gc.total;
   lj_trace_initstate(g);
   return NULL;
@@ -161,7 +163,9 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
 static void close_state(lua_State *L)
 {
   global_State *g = G(L);
+  GCArena *GGarena = lj_gc_arenaref(g, 0);
   lj_func_closeuv(L, tvref(L->stack));
+  lj_trace_freeall(g);
   lj_gc_freeall(g);
   lua_assert(gcref(g->gc.root) == obj2gco(L));
   lua_assert(g->strnum == 0);
@@ -172,13 +176,7 @@ static void close_state(lua_State *L)
   lj_mem_freevec(g, g->strhash, g->strmask+1, GCRef);
   lj_buf_free(g, &g->tmpbuf);
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
-  lua_assert(g->gc.total == sizeof(GG_State));
-#ifndef LUAJIT_USE_SYSMALLOC
-  if (g->allocf == lj_alloc_f)
-    lj_alloc_destroy(g->allocd);
-  else
-#endif
-    g->allocf(g->allocd, G2GG(g), sizeof(GG_State), 0);
+  arena_destroyGG(g, GGarena);
 }
 
 #if LJ_64 && !LJ_GC64 && !(defined(LUAJIT_USE_VALGRIND) && defined(LUAJIT_USE_SYSMALLOC))
@@ -187,18 +185,19 @@ lua_State *lj_state_newstate(lua_Alloc f, void *ud)
 LUA_API lua_State *lua_newstate(lua_Alloc f, void *ud)
 #endif
 {
-  GG_State *GG = (GG_State *)f(ud, NULL, 0, sizeof(GG_State));
+  GCArena* GGarena;
+  //GG_State *GG = (GG_State *)f(ud, NULL, 0, sizeof(GG_State));
+  GG_State *GG = (GG_State *)arena_createGG(&GGarena);
   lua_State *L = &GG->L;
   global_State *g = &GG->g;
   if (GG == NULL || !checkptrGC(GG)) return NULL;
   memset(GG, 0, sizeof(GG_State));
   L->gct = ~LJ_TTHREAD;
-  L->marked = LJ_GC_WHITE0 | LJ_GC_FIXED | LJ_GC_SFIXED;  /* Prevent free. */
+  L->marked = LJ_GC_FIXED;  /* Prevent free. */
   L->dummy_ffid = FF_C;
   setmref(L->glref, g);
-  g->gc.currentwhite = LJ_GC_WHITE0 | LJ_GC_FIXED;
-  g->strempty.marked = LJ_GC_WHITE0;
   g->strempty.gct = ~LJ_TSTR;
+  g->gc.total = arena_totalobjmem(GGarena);
   g->allocf = f;
   g->allocd = ud;
   setgcref(g->mainthref, obj2gco(L));
@@ -212,13 +211,9 @@ LUA_API lua_State *lua_newstate(lua_Alloc f, void *ud)
   setmref(g->nilnode.freetop, &g->nilnode);
 #endif
   lj_buf_init(NULL, &g->tmpbuf);
-  g->gc.state = GCSpause;
-  setgcref(g->gc.root, obj2gco(L));
-  setmref(g->gc.sweep, &g->gc.root);
-  g->gc.total = sizeof(GG_State);
-  g->gc.pause = LUAI_GCPAUSE;
-  g->gc.stepmul = LUAI_GCMUL;
+
   lj_dispatch_init((GG_State *)L);
+  g->travarena = GGarena;
   L->status = LUA_ERRERR+1;  /* Avoid touching the stack upon memory error. */
   if (lj_vm_cpcall(L, NULL, NULL, cpluaopen) != 0) {
     /* Memory allocation error: free partial state. */
@@ -233,8 +228,8 @@ static TValue *cpfinalize(lua_State *L, lua_CFunction dummy, void *ud)
 {
   UNUSED(dummy);
   UNUSED(ud);
-  lj_gc_finalize_cdata(L);
-  lj_gc_finalize_udata(L);
+  //lj_gc_finalize_cdata(L);
+ // lj_gc_finalize_udata(L);
   /* Frame pop omitted. */
   return NULL;
 }
@@ -284,8 +279,8 @@ lua_State *lj_state_new(lua_State *L)
   setgcrefnull(L1->openupval);
   setmrefr(L1->glref, L->glref);
   setgcrefr(L1->env, L->env);
+  arena_adddefermark(L, ptr2arena(L1), L1);
   stack_init(L1, L);  /* init stack */
-  lua_assert(iswhite(obj2gco(L1)));
   return L1;
 }
 
@@ -297,6 +292,6 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
   lj_func_closeuv(L, tvref(L->stack));
   lua_assert(gcref(L->openupval) == NULL);
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
-  lj_mem_freet(g, L);
+  lj_mem_freegco(g, L, sizeof(lua_State));
 }
 

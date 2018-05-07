@@ -23,6 +23,7 @@
 #include <unistd.h>
 #define lua_stdin_is_tty()	isatty(0)
 #elif LJ_TARGET_WINDOWS
+#include <Windows.h>
 #include <io.h>
 #ifdef __BORLANDC__
 #define lua_stdin_is_tty()	isatty(_fileno(stdin))
