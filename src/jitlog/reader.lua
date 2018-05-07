@@ -185,10 +185,35 @@ function base_actions:stringmarker(msg)
   return marker
 end
 
+function base_actions:section(msg)
+  local id = msg:get_id()
+  local isstart = msg:get_isstart()
+  local length
+  if isstart then
+    self.section_starts[id] = msg.time
+    self.section_counts[id] = (self.section_counts[id] or 0) + 1
+  else
+    local start = self.section_starts[id]
+    if start then
+      length = tonumber(msg.time - start)
+      self.section_starts[id] = false
+      self.section_time[id] = (self.section_time[id] or 0ull) + length
+    else
+      self:log_msg("section", "Section(%s): found end without a section start at %d", self.section_names[id], self.eventid)
+    end
+  end
+  return id, isstart, length
+end
+
 function base_actions:enumdef(msg)
   local name = msg:get_name()
   local names = msg:get_valuenames()
-  self.enums[name] = make_enum(names)
+  local enum = make_enum(names)
+  self.enums[name] = enum
+  if name == "sections" then
+    self.maxsection = #names
+    self.section_names = enum
+  end
   self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
   return name, names
 end
@@ -754,6 +779,9 @@ local function makereader(mixins)
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
     enums = {},
+    section_starts = {},
+    section_counts = {},
+    section_time = {},
     verbose = false,
     logfilter = {
       --header = true,
