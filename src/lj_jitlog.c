@@ -235,6 +235,7 @@ static GCproto* getcurlualoc(JITLogState *context, uint32_t *pc)
   jit_State *J = G2J(context->g);
   GCproto *pt = NULL;
 
+  *pc = 0;
   if (J->pt) {
     pt = J->pt;
     *pc = proto_bcpos(pt, J->pc);
