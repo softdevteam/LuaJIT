@@ -776,6 +776,11 @@ function generator:write_cheader(options)
   for _, def in ipairs(self.msglist) do
     self:write_logfunc(def)
   end
+
+  self:write_namelist("msgnames", self.sorted_msgnames)
+  self:write_msgsizes()
+  self:write_msgsizes(true)
+  
   self:write("#endif\n")
   self.outputfile:close()
 end
