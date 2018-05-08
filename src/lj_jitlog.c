@@ -18,6 +18,11 @@
 #include "jitlog.h"
 
 
+typedef enum JITLogMode {
+  JITLogMode_FlushOnShutdown   = 1,
+  JITLogMode_AlwaysWriteGCObjs = 2,
+} JITLogMode;
+
 typedef struct JITLogState {
   SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
   JITLogUserContext user;
@@ -34,6 +39,7 @@ typedef struct JITLogState {
   GCfunc *lastlua;
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
+  JITLogMode mode;
 } JITLogState;
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
@@ -124,11 +130,12 @@ static int memorize_string(JITLogState *context, GCstr *s)
     /*TODO: don't keep around large strings */
   }
 
-  if (memorize_gcref(L, context->strings, &key, &context->strcount)) {
+  if ((context->mode & JITLogMode_AlwaysWriteGCObjs) || memorize_gcref(L, context->strings, &key, &context->strcount)) {
     log_gcstring(context->g, s, strdata(s));
     return 1;
+  } else {
+    return 0;
   }
-  return 0;
 }
 
 static const uint8_t* collectvarinfo(GCproto* pt)
@@ -174,7 +181,7 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
   memorize_string(context, strref(pt->chunkname));
   setprotoV(L, &key, pt);
   /* Only write each proto once to the jitlog */
-  if (!memorize_gcref(L, context->protos, &key, &context->protocount)) {
+  if (!(context->mode & JITLogMode_AlwaysWriteGCObjs) && !memorize_gcref(L, context->protos, &key, &context->protocount)) {
     return;
   }
 
@@ -210,7 +217,7 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
   TValue key;
   setfuncV(L, &key, fn);
 
-  if (!memorize_gcref(L, context->funcs, &key, &context->funccount)) {
+  if (!(context->mode & JITLogMode_AlwaysWriteGCObjs) && !memorize_gcref(L, context->funcs, &key, &context->funccount)) {
     return;
   }
 
