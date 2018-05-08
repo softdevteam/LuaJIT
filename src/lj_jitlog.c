@@ -624,18 +624,32 @@ LUA_API void jitlog_close(JITLogUserContext *usrcontext)
   jitlog_shutdown(context);
 }
 
+static void reset_memoization(lua_State *L, JITLogState *context)
+{
+  context->strcount = 0;
+  context->protocount = 0;
+  context->funccount = 0; 
+  free_pinnedtab(L, context->protos);
+  free_pinnedtab(L, context->funcs);
+  free_pinnedtab(L, context->strings);
+  context->protos = create_pinnedtab(L, 1);
+  context->funcs = create_pinnedtab(L, 1);
+  context->strings = create_pinnedtab(L, 1);
+}
+
 LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
 {
   JITLogState *context = usr2ctx(usrcontext);
-  context->strcount = 0;
-  context->protocount = 0;
-  context->funccount = 0;
-  lj_tab_clear(context->strings);
-  lj_tab_clear(context->protos);
-  lj_tab_clear(context->funcs);
+  reset_memoization(mainthread(context->g), context);
   lj_buf_reset(&context->eventbuf);
   memset(context->lasthotcounts, 0, HOTCOUNT_SIZE * sizeof(short));
   write_header(context);
+}
+
+LUA_API void jitlog_resetmemoization(JITLogUserContext *usrcontext)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  reset_memoization(mainthread(context->g), context);
 }
 
 LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
@@ -721,6 +735,13 @@ static int jlib_reset(lua_State *L)
   return 0;
 }
 
+static int jlib_reset_memorization(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  reset_memoization(L, context);
+  return 0;
+}
+
 static int jlib_save(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
@@ -786,6 +807,7 @@ static const luaL_Reg jitlog_lib[] = {
   {"start", jlib_start},
   {"shutdown", jlib_shutdown},
   {"reset", jlib_reset},
+  {"reset_memorization", jlib_reset_memorization},
   {"save", jlib_save},
   {"savetostring", jlib_savetostring},
   {"getsize", jlib_getsize},
