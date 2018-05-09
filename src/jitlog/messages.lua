@@ -220,6 +220,13 @@ local msgs = {
     "objmemsz :  u64",
     "objmem : u8[objmemsz]",
   },
+
+  {
+    name = "gcstats",
+    "time : timestamp",
+    "statsbuff_length :  u16",
+    "statsbuff : u8[statsbuff_length]",
+  },
 }
 
 return msgs
