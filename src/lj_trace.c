@@ -30,6 +30,7 @@
 #include "lj_vm.h"
 #include "lj_vmevent.h"
 #include "lj_target.h"
+#include "lj_vmperf.h"
 
 /* -- Error handling ------------------------------------------------------ */
 
@@ -859,7 +860,9 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   lua_assert(T != NULL && J->exitno < T->nsnap);
   exd.J = J;
   exd.exptr = exptr;
+  TIMER_START(trace_exit_restore);
   errcode = lj_vm_cpcall(L, NULL, &exd, trace_exit_cp);
+  TIMER_END(trace_exit_restore);
   if (errcode)
     return -errcode;  /* Return negated error code. */
 

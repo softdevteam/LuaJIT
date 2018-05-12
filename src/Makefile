@@ -706,6 +706,7 @@ include Makefile.dep
 lj_jitlog.o: lj_jitlog.c lj_jitlog_def.h lj_jitlog_writers.h lj_bcdef.h lj_ffdef.h
 lj_vmperf.o: lj_jitlog_def.h
 lj_gc.o: lj_jitlog_def.h
+lj_trace.o: lj_jitlog_def.h
 
 ##############################################################################
 # Target file rules.
