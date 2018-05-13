@@ -789,6 +789,18 @@ static int jlib_addmarker(lua_State *L)
   return 0;
 }
 
+static int jlib_objmarker(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  TValue *obj = lj_lib_checkany(L, 1);
+  int32_t id = lj_lib_checkint(L, 2);
+  if (obj->it > LJ_TSTR) {
+    luaL_error(L, "argument is not an object");
+  }
+  log_objmarker(context->g, 0, 0, id, gcref(obj->gcr));
+  return 0;
+}
+
 static int jlib_reset(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
@@ -865,6 +877,7 @@ static const luaL_Reg jitlog_lib[] = {
   {"savetostring", jlib_savetostring},
   {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
+  {"addobjmarker", jlib_objmarker},
 #if LJ_HASJIT
   {"snap_hotcounts", jlib_snap_hotcounts},
   {"cmp_hotcounts", jlib_cmp_hotcounts},

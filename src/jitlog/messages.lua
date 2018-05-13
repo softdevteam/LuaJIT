@@ -77,6 +77,14 @@ local msgs = {
   },
 
   {
+    name = "objmarker",
+    "jited : bool",
+    "flags : 7",
+    "id : 16",
+    "obj : GCRefPtr"
+  },
+
+  {
     name = "gcstring",
     "address : GCRef",
     "len : u32",
