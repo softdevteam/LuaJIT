@@ -773,13 +773,19 @@ static int jlib_shutdown(lua_State *L)
   return 0;
 }
 
+void lj_write_stringmarker(JITLogState *context, GCstr *label, int flags)
+{
+  int jited = context->g->vmstate > 0;
+  lua_assert(label != NULL);
+  log_stringmarker(context->g, flags, jited, strdata(label));
+}
+
 static int jlib_addmarker(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
-  size_t size = 0;
-  const char *label = luaL_checklstring(L, 1, &size);
+  luaL_checkstring(L, 1);
   int flags = luaL_optint(L, 2, 0);
-  log_stringmarker(context->g, flags, label);
+  lj_write_stringmarker(context, strV(L->base+1), flags);
   return 0;
 }
 
