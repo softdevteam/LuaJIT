@@ -309,10 +309,9 @@ static void gc_traverse_trace(global_State *g, GCtrace *T)
   for (ref = T->nk; ref < REF_TRUE; ref++) {
     IRIns *ir = &T->ir[ref];
     if (ir->o == IR_KGC)
-	/*FIXME GC64 */
+      gc_markgct(g, ir_kgc(ir), irt_toitype(ir->t));
     if (irt_is64(ir->t) && ir->o != IR_KNULL)
       ref++;
-      gc_markgct(g, ir_kgc(ir), irt_toitype(ir->t));
   }
   if (T->link) gc_marktrace(g, T->link);
   if (T->nextroot) gc_marktrace(g, T->nextroot);
