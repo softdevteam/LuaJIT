@@ -304,7 +304,9 @@ static void gc_marktrace(global_State *g, TraceNo traceno)
 static void gc_traverse_trace(global_State *g, GCtrace *T)
 {
   IRRef ref;
-  if (T->traceno == 0) return;
+  if (T->traceno == 0) {
+    return;
+  }
   PERF_COUNTER(gc_traverse_trace);
   for (ref = T->nk; ref < REF_TRUE; ref++) {
     IRIns *ir = &T->ir[ref];
@@ -902,7 +904,9 @@ GCArena* lj_gc_newarena(lua_State *L, uint32_t flags)
   if ((flags & ArenaFlag_TravObjs) && (g->gc.state & 1)) {
     pqueue_insert(L, &g->gc.greypq, arena);
   }
+#ifdef LJ_ENABLESTATS
   log_arenacreated(id, arena,  g->gc.total, flags);
+#endif
   GCDEBUG("Arena %d created\n", id);
   return arena;
 }
@@ -986,8 +990,9 @@ GCArena *lj_gc_setactive_arena(lua_State *L, GCArena *arena, int travobjs)
   MSize id = arena->extra.id;
   MSize flags = lj_gc_arenaflags(g, id);
   lua_assert(lj_gc_getarenaid(g, arena) != -1);
-
+#ifdef LJ_ENABLESTATS
   log_arenaactive(id, arena_topcellid(arena), flags);
+#endif
 
   if ((g->gc.state == GCSsweep || g->gc.state == GCSsweepstring)) {
     lj_gc_setarenaflag(g, id, ArenaFlag_SweepNew);
@@ -1155,7 +1160,12 @@ static void sweep_traces(global_State *g)
 
   for (int i = J->sizetrace-1; i > 0; i--) {
     GCtrace *t = (GCtrace *)gcref(J->trace[i]);
-    if (t && iswhite(g, t)) {
+    lua_assert(!t || t->traceno == i);
+    if (t && iswhite(g, t) && 0) {
+      for (int j = 1; j < J->sizetrace-1; j--) {
+        GCtrace *t2 = (GCtrace *)gcref(J->trace[i]);
+        lua_assert(!t2 || t->nextside == i || t->nextroot == i);
+      }
       lj_trace_free(g, t);
     }
   }
