@@ -199,6 +199,33 @@ local msgs = {
   },
   
   {
+    name = "arenacreated",
+    "arenaid : 12",
+    "address : MRef",
+    "time : timestamp",
+    "totalmem : GCSize",
+    "flags : u16",
+  },
+
+  {
+    name = "arenaactive",
+    "arenaid : 12",
+    "celltop : u16",
+    "flags : u16",
+    "time : timestamp",
+  },
+
+  {
+    name = "arenasweep",
+    "arenaid : 12",
+    "empty : bool",
+    "time : u32",
+    "sweeped : u16",
+    "celltop : u16",
+    "flags : u32",
+  },
+
+  {
     name = "gcfunc",
     "address : GCRefPtr",
     "proto_or_cfunc : ptr",
