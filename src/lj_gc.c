@@ -642,6 +642,7 @@ static int gc_sweepstring(global_State *g)
       g->strnum--;
       *(prev ? &prev->nextgc : &g->strhash[g->gc.sweepstr]) = s->nextgc;
     } else {
+      lua_assert(!arenaobj_isdead(s));
       prev = s;
     }
   }
