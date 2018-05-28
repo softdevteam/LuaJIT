@@ -12,14 +12,16 @@
 #include "lj_ircall.h"
 #include "luajit.h"
 #include "lauxlib.h"
-
-#include "lj_jitlog_def.h"
-#include "lj_jitlog_writers.h"
+#include "lj_err.h"
 #include "jitlog.h"
+#include "lj_jitlog_def.h"
+
+#include "lj_jitlog_writers.h"
+
 
 
 typedef struct JITLogState {
-  SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
+  UserBuf ub; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
   JITLogUserContext user;
   global_State *g;
   GCtab *strings;
@@ -35,6 +37,10 @@ typedef struct JITLogState {
   GCfunc *lastfunc;
   uint16_t lasthotcounts[HOTCOUNT_SIZE];
 } JITLogState;
+
+
+LJ_STATIC_ASSERT(offsetof(JITLogState, ub) == 0);
+LJ_STATIC_ASSERT(offsetof(UserBuf, p) == 0);
 
 #define usr2ctx(usrcontext)  ((JITLogState *)(((char *)usrcontext) - offsetof(JITLogState, user)))
 #define ctx2usr(context)  (&(context)->user)
@@ -78,7 +84,7 @@ static void write_enumdef(JITLogState *context, const char *name, const char *co
   lj_buf_init(mainthread(g), &sb);
   int count = bufwrite_strlist(&sb, names, namecount);
   lua_assert(namecount == count);
-  log_enumdef(g, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
+  log_enumdef(&context->ub, isbitflags, name, count, sbufB(&sb), sbuflen(&sb));
   lj_buf_free(g, &sb);
 }
 
@@ -104,7 +110,7 @@ static int memorize_string(JITLogState *context, GCstr *s)
   }
 
   if (memorize_gcref(L, context->strings, &key, &context->strcount)) {
-    log_gcstring(context->g, s, strdata(s));
+    log_gcstring(&context->ub, s, strdata(s));
     return 1;
   }
   return 0;
@@ -180,7 +186,7 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
     }
   }
 
-  log_gcproto(context->g, pt, proto_bc(pt), proto_bc(pt), mref(pt->k, GCRef),  lineinfo, linesize, proto_varinfo(pt), (uint32_t)vinfosz);
+  log_gcproto(&context->ub, pt, proto_bc(pt), proto_bc(pt), mref(pt->k, GCRef),  lineinfo, linesize, proto_varinfo(pt), (uint32_t)vinfosz);
 }
 
 static void memorize_func(JITLogState *context, GCfunc *fn)
@@ -201,9 +207,9 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
     for(i = 0; i != fn->l.nupvalues; i++) {
       upvalues[i] = *uvval(&gcref(fn->l.uvptr[i])->uv);
     }
-    log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
+    log_gcfunc(&context->ub, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
   } else {
-    log_gcfunc(context->g, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
+    log_gcfunc(&context->ub, fn, fn->c.f, fn->l.ffid, fn->c.upvalue, fn->c.nupvalues);
   }
 }
 
@@ -270,7 +276,7 @@ static void jitlog_writetrace(JITLogState *context, GCtrace *T, int abort)
     irsize = (T->nins - T->nk) + 1;
   }
 
-  log_trace(context->g, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, mcodesize, T->ir + T->nk, irsize);
+  log_trace(&context->ub, T, abort, isstitched(context, T), J->parent, stoppt, stoppc, context->lastfunc, (uint16_t)abortreason, startpc, mcodesize, T->ir + T->nk, irsize);
 }
 
 static void jitlog_tracestop(JITLogState *context, GCtrace *T)
@@ -316,22 +322,22 @@ static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
   ** 512 which will fit in the spare 24 bits of a message header.
   */
   if (J->parent < large_traceid && J->exitno < large_exitnum) {
-    log_traceexit_small(context->g, exitState->gcexit, J->parent, J->exitno);
+    log_traceexit_small(&context->ub, exitState->gcexit, J->parent, J->exitno);
   } else {
-    log_traceexit(context->g, exitState->gcexit, J->parent, J->exitno);
+    log_traceexit(&context->ub, exitState->gcexit, J->parent, J->exitno);
   }
 }
 
 static void jitlog_protobl(JITLogState *context, VMEventData_ProtoBL *data)
 {
   memorize_proto(context, data->pt);
-  log_protobl(context->g, data->pt, data->pc);
+  log_protobl(&context->ub, data->pt, data->pc);
 }
 
 static void jitlog_traceflush(JITLogState *context, FlushReason reason)
 {
   jit_State *J = G2J(context->g);
-  log_alltraceflush(context->g, reason, J->param[JIT_P_maxtrace], J->param[JIT_P_maxmcode] << 10);
+  log_alltraceflush(&context->ub, reason, J->param[JIT_P_maxtrace], J->param[JIT_P_maxmcode] << 10);
 }
 
 #endif
@@ -342,7 +348,7 @@ static void jitlog_gcstate(JITLogState *context, int newstate)
   if (context->user.logfilter & LOGFILTER_GC_STATE) {
     return;
   }
-  log_gcstate(g, newstate, g->gc.state, g->gc.total, g->strnum);
+  log_gcstate(&context->ub, newstate, g->gc.state, g->gc.total, g->strnum);
 }
 
 static void jitlog_protoloaded(JITLogState *context, GCproto *pt)
@@ -351,7 +357,7 @@ static void jitlog_protoloaded(JITLogState *context, GCproto *pt)
     return;
   }
   memorize_proto(context, pt);
-  log_protoloaded(context->g, pt);
+  log_protoloaded(&context->ub, pt);
 }
 
 static void free_context(JITLogState *context);
@@ -504,7 +510,7 @@ static void write_header(JITLogState *context)
   SBuf sb;
   lj_buf_init(L, &sb);
   bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
-  log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
+  log_header(&context->ub, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
   lj_buf_free(context->g, &sb);
 
   write_enum(context, "gcstate", gcstates);
@@ -542,16 +548,9 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
   context->protos = create_pinnedtab(L);
   context->funcs = create_pinnedtab(L);
 
-  MSize total = G(L)->gc.total;
-  SBuf *sb = &context->eventbuf;
-  lj_buf_init(L, sb);
-  lj_buf_more(sb, 1024*1024*100);
-  /* 
-  ** Our Buffer size counts towards the gc heap size. This is an ugly hack to try and 
-  ** keep the GC running at the same rate with the jitlog running by excluding our buffer
-  ** from the gcheap size.
-  */
-  G(L)->gc.total = total;
+  /* Default to a memory buffer */
+  context->ub.L = L;
+  ubuf_init_mem(&context->ub, 0);
   luaJIT_vmevent_sethook(L, jitlog_callback, context);
   write_header(context);
 
@@ -561,14 +560,13 @@ LUA_API JITLogUserContext* jitlog_start(lua_State *L)
 
 static void free_context(JITLogState *context)
 {
-  global_State *g = context->g;
+  UserBuf *ubuf = &context->ub;
   const char *path = getenv("JITLOG_PATH");
   if (path != NULL) {
     jitlog_save(ctx2usr(context), path);
   }
-
-  g->gc.total += sbufsz(&context->eventbuf);
-  lj_buf_free(g, &context->eventbuf);
+  ubuf_flush(ubuf);
+  ubuf_free(ubuf);
   free(context);
 }
 
@@ -603,7 +601,7 @@ LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
   lj_tab_clear(context->strings);
   lj_tab_clear(context->protos);
   lj_tab_clear(context->funcs);
-  lj_buf_reset(&context->eventbuf);
+  ubuf_reset(&context->ub);
   memset(context->lasthotcounts, 0, HOTCOUNT_SIZE * sizeof(short));
   write_header(context);
 }
@@ -611,7 +609,7 @@ LUA_API void jitlog_reset(JITLogUserContext *usrcontext)
 LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
 {
   JITLogState *context = usr2ctx(usrcontext);
-  SBuf *sb = &context->eventbuf;
+  UserBuf *ub = &context->ub;
   int result = 0;
   lua_assert(path && path[0]);
 
@@ -620,8 +618,8 @@ LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
     return -errno;
   }
 
-  size_t written = fwrite(sbufB(sb), 1, sbuflen(sb), dumpfile);
-  if (written != sbuflen(sb) && ferror(dumpfile)) {
+  size_t written = fwrite(ubufB(ub), 1, ubuflen(ub), dumpfile);
+  if (written != ubuflen(ub) && ferror(dumpfile)) {
     result = -errno;
   } else {
     int status = fflush(dumpfile);
@@ -642,7 +640,7 @@ LUA_API void jitlog_savehotcounts(JITLogUserContext *usrcontext)
     return;
   }
   memcpy(context->lasthotcounts, gg->hotcount, sizeof(gg->hotcount));
-  log_hotcounts(context->g, G2GG(context->g)->hotcount, HOTCOUNT_SIZE);
+  log_hotcounts(&context->ub, G2GG(context->g)->hotcount, HOTCOUNT_SIZE);
 #endif
 }
 
@@ -680,7 +678,7 @@ static int jlib_addmarker(lua_State *L)
   size_t size = 0;
   const char *label = luaL_checklstring(L, 1, &size);
   int flags = luaL_optint(L, 2, 0);
-  log_stringmarker(context->g, flags, label);
+  log_stringmarker(&context->ub, flags, label);
   return 0;
 }
 
@@ -705,15 +703,15 @@ static int jlib_save(lua_State *L)
 static int jlib_savetostring(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
-  lua_pushlstring(L, sbufB(&context->eventbuf), sbuflen(&context->eventbuf));
+  UserBuf *ub = &context->ub;
+  lua_pushlstring(L, ubufB(ub), ubuflen(ub));
   return 1;
 }
 
 static int jlib_getsize(lua_State *L)
 {
   JITLogState *context = jlib_getstate(L);
-  SBuf *sb = &context->eventbuf;
-  lua_pushnumber(L, sbuflen(sb));
+  lua_pushnumber(L, (LUA_NUMBER)ubuflen(&context->ub));
   return 1;
 }
 
