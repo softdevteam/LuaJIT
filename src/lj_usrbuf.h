@@ -92,6 +92,7 @@ static inline int ubuf_free(UserBuf *ub)
 
 int membuf_doaction(UserBuf *ub, UBufAction action, void *arg);
 int filebuf_doaction(UserBuf *ub, UBufAction action, void *arg);
+int mmapbuf_doaction(UserBuf *ub, UBufAction action, void *arg);
 
 static inline int ubuf_init_mem(UserBuf *ub, int minbufspace)
 {
@@ -107,6 +108,16 @@ static inline int ubuf_init_file(UserBuf *ub, const char* path)
   ub->bufhandler = filebuf_doaction;
   args.path = (void *)path;
   return filebuf_doaction(ub, UBUF_INIT, &args);
+}
+
+static inline int ubuf_init_mmap(UserBuf *ub, const char* path, int windowsize)
+{
+  UBufInitArgs args = {0};
+  lua_assert(path);
+  ub->bufhandler = mmapbuf_doaction;
+  args.minbufspace = windowsize;
+  args.path = (void *)path;
+  return mmapbuf_doaction(ub, UBUF_INIT, &args);
 }
 
 #endif
