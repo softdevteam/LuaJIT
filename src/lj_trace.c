@@ -547,6 +547,34 @@ static void trace_stop(jit_State *J)
   );
 }
 
+static void trace_stop_cmp(jit_State *J)
+{
+  GCproto *pt = &gcref(J->cur.startpt)->pt;
+  TraceNo traceno = J->cur.traceno;
+  GCtrace *T = J->curfinal;
+  lua_State *L;
+
+  J->postproc = LJ_POST_NONE;
+  trace_save(J, T);
+
+  if (pt->tracecmp) {
+    GCtrace *last = traceref(J, pt->tracecmp);
+    while(last->nextroot) {
+      last = traceref(J, last->nextroot);
+    }
+    last->nextroot = J->cur.traceno;
+  } else {
+    pt->tracecmp = traceno;
+  }
+
+  L = J->L;
+  lj_vmevent_send_trace(L, STOP, T,
+    setstrV(L, L->top++, lj_str_newlit(L, "stop"));
+  setintV(L->top++, traceno);
+  setfuncV(L, L->top++, J->fn);
+  );
+}
+
 /* Start a new root trace for down-recursion. */
 static int trace_downrec(jit_State *J)
 {
@@ -693,6 +721,7 @@ static TValue *trace_state(lua_State *L, lua_CFunction dummy, void *ud)
       if ((J->flags & JIT_F_OPT_LOOP) &&
 	  J->cur.link == J->cur.traceno && J->framedepth + J->retdepth == 0) {
 	setvmstate(J2G(J), OPT);
+
 	lj_opt_dce(J);
 	if (lj_opt_loop(J)) {  /* Loop optimization failed? */
 	  J->cur.link = 0;
@@ -710,9 +739,13 @@ static TValue *trace_state(lua_State *L, lua_CFunction dummy, void *ud)
       break;
 
     case LJ_TRACE_ASM:
-      setvmstate(J2G(J), ASM);
-      lj_asm_trace(J, &J->cur);
-      trace_stop(J);
+      if(J->flags & JIT_F_CMPMODE) {
+        trace_stop_cmp(J);
+      } else {
+        setvmstate(J2G(J), ASM);
+        lj_asm_trace(J, &J->cur);
+        trace_stop(J);
+      }
       setvmstate(J2G(J), INTERP);
       J->state = LJ_TRACE_IDLE;
       lj_dispatch_update(J2G(J));
@@ -949,5 +982,15 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
     return 0;
   }
 }
+
+/* 
+** Trace diff extra IR instructions
+** a HREFK table hashslot\key differs 
+** Guard condition inverted
+** 
+** 
+** 
+*/
+
 
 #endif
