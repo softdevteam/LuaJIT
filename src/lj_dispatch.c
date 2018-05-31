@@ -99,6 +99,7 @@ void lj_dispatch_init_hotcount(global_State *g)
 #define DISPMODE_JIT	0x10	/* JIT compiler on. */
 #define DISPMODE_REC	0x20	/* Recording active. */
 #define DISPMODE_PROF	0x40	/* Profiling active. */
+#define DISPMODE_COND   0x80
 
 /* Update dispatch table depending on various flags. */
 void lj_dispatch_update(global_State *g)
@@ -141,7 +142,7 @@ void lj_dispatch_update(global_State *g)
     disp[GG_LEN_DDISP+BC_LOOP] = f_loop;
 
     /* Set dynamic instruction dispatch. */
-    if ((oldmode ^ mode) & (DISPMODE_PROF|DISPMODE_REC|DISPMODE_INS)) {
+    if ((oldmode ^ mode) & (DISPMODE_PROF|DISPMODE_REC|DISPMODE_INS|DISPMODE_COND)) {
       /* Need to update the whole table. */
       if (!(mode & DISPMODE_INS)) {  /* No ins dispatch? */
 	/* Copy static dispatch table to dynamic dispatch table. */
@@ -153,6 +154,16 @@ void lj_dispatch_update(global_State *g)
 	  disp[BC_RET0] = lj_vm_rethook;
 	  disp[BC_RET1] = lj_vm_rethook;
 	}
+
+        /* We only want to capture control flow changes */
+        if (mode & DISPMODE_COND) {
+          uint32_t i;
+          for (i = BC_ISLT; i < BC_ISNUM; i++) {
+            disp[i] = lj_vm_inshook;
+          }
+          disp[BC_JMP] = lj_vm_inshook;
+        }
+
       } else {
 	/* The recording dispatch also checks for hooks. */
 	ASMFunction f = (mode & DISPMODE_PROF) ? lj_vm_profhook :
@@ -400,6 +411,17 @@ static BCReg cur_topslot(GCproto *pt, const BCIns *pc, uint32_t nres)
   }
 }
 
+typedef struct TracedBC {
+  BCOp op;
+  uint8_t flags;
+  uint8_t type;
+  uint32_t pc;
+} TracedBC;
+
+static const int bclistsz = 10000;
+TracedBC bclist[bclistsz] = {0};
+static int bcn = 0;
+
 /* Instruction dispatch. Used by instr/line/return hooks or when recording. */
 void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
 {
@@ -423,6 +445,15 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
       J->L = L;
       lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
       lua_assert(L->top - L->base == delta);
+    }
+    if (1) {
+      BCPos npc = proto_bcpos(pt, pc) - 1;
+      BCOp op = bc_op(pc[-1]);
+      bclist[bcn].pc = npc;
+      bclist[bcn].op = op;
+      if (++bcn == bclistsz) {
+        lua_assert(0 && "bc list full");
+      }
     }
   }
 #endif
