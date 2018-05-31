@@ -276,6 +276,7 @@ static void gc_traverse_proto(global_State *g, GCproto *pt)
     gc_markobj(g, proto_kgc(pt, i));
 #if LJ_HASJIT
   if (pt->trace) gc_marktrace(g, pt->trace);
+  if (pt->tracecmp) gc_marktrace(g, pt->tracecmp);
 #endif
 }
 
