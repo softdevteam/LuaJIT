@@ -117,6 +117,9 @@ void lj_dispatch_update(global_State *g)
   mode |= (g->hookmask & (LUA_MASKLINE|LUA_MASKCOUNT)) ? DISPMODE_INS : 0;
   mode |= (g->hookmask & LUA_MASKCALL) ? DISPMODE_CALL : 0;
   mode |= (g->hookmask & LUA_MASKRET) ? DISPMODE_RET : 0;
+  if (g->vmstate == LJ_VMST_CMPBC) {
+    mode |= DISPMODE_COND|DISPMODE_CALL;
+  }
   if (oldmode != mode) {  /* Mode changed? */
     ASMFunction *disp = G2GG(g)->dispatch;
     ASMFunction f_forl, f_iterl, f_loop, f_funcf, f_funcv;
@@ -411,19 +414,7 @@ static BCReg cur_topslot(GCproto *pt, const BCIns *pc, uint32_t nres)
   }
 }
 
-typedef struct TracedBC {
-  BCOp op;
-  uint8_t flags;
-  uint8_t type;
-  union {
-    uint32_t pc;
-    GCRef func;
-  };
-} TracedBC;
-
-#define bclistsz 10000
-TracedBC bclist[bclistsz] = {0};
-static int bcn = 0;
+void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc);
 
 /* Instruction dispatch. Used by instr/line/return hooks or when recording. */
 void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
@@ -449,17 +440,8 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
       lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
       lua_assert(L->top - L->base == delta);
     }
-    if (1) {
-      BCPos npc = proto_bcpos(pt, pc) - 1;
-      BCOp op = bc_op(pc[-1]);
-      if (op < BC_ISNUM || op == BC_JMP || bc_isret(op) || op == BC_CALLMT || op == BC_CALLT ||
-          op >= BC_FUNCF || (op >= BC_FORI && op <= BC_JLOOP)) {
-        bclist[bcn].pc = npc;
-        bclist[bcn].op = op;
-        if (++bcn == bclistsz) {
-          lua_assert(0 && "bc list full");
-        }
-      }
+    if (g->vmstate == ~LJ_VMST_CMPBC || g->vmstate == ~LJ_VMST_RECORD) {
+      bclog_ins(L, pt, pc);
     }
   }
 #endif
@@ -500,6 +482,8 @@ static int call_init(lua_State *L, GCfunc *fn)
   }
 }
 
+void bclog_call(lua_State *L, GCfunc *fn, const BCIns *pc);
+
 /* Call dispatch. Used by call hooks, hot calls or when recording. */
 ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, BCIns *pc)
 {
@@ -526,25 +510,12 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, BCIns *pc)
 #ifdef LUA_USE_ASSERT
     ptrdiff_t delta = L->top - L->base;
 #endif
-    if (1) {
-      GCfunc *func = curr_func(J->L);
-      GCproto *pt = isluafunc(func) ? funcproto(func) : NULL;
-      BCOp op = bc_op(pc[-1]);
-      bclist[bcn].op = op;
-      lua_assert(op >= BC_FUNCF);
-      if (pt) {
-        setgcrefp(bclist[bcn].func, pt);
-      } else {
-        bclist[bcn].type = func->c.ffid;
-        setgcrefp(bclist[bcn].func, func);
-      }
-      if (++bcn == bclistsz) {
-        lua_assert(0 && "bc list full");
-      }
-    }
+    bclog_call(L, fn, pc);
     /* Record the FUNC* bytecodes, too. */
     lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
     lua_assert(L->top - L->base == delta);
+  } else if(g->vmstate == ~LJ_VMST_CMPBC || g->vmstate == ~LJ_VMST_RECORD) {
+    bclog_call(L, fn, pc);
   }
 #endif
   if ((g->hookmask & LUA_MASKCALL)) {

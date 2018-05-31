@@ -519,6 +519,7 @@ enum {
   LJ_VMST_C,		/* C function. */
   LJ_VMST_GC,		/* Garbage collector. */
   LJ_VMST_EXIT,		/* Trace exit handler. */
+  LJ_VMST_CMPBC,        /* Recording bytecode to compare against a previous trace */
   LJ_VMST_RECORD,	/* Trace recorder. */
   LJ_VMST_OPT,		/* Optimizer. */
   LJ_VMST_ASM,		/* Assembler. */

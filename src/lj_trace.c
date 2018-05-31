@@ -414,6 +414,8 @@ setpenalty:
 
 /* -- Trace compiler state machine ---------------------------------------- */
 
+void bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc);
+
 /* Start tracing. */
 static void trace_start(jit_State *J)
 {
@@ -460,6 +462,7 @@ static void trace_start(jit_State *J)
   setgcref(J->cur.startpt, obj2gco(J->pt));
 
   L = J->L;
+  bclog_tracestart(L, J->pt, J->pc);
   lj_vmevent_send_trace(L, START, &J->cur,
     setstrV(L, L->top++, lj_str_newlit(L, "start"));
     setintV(L->top++, traceno);
@@ -479,6 +482,8 @@ static void trace_start(jit_State *J)
   lj_record_setup(J);
 }
 
+void bclog_stop(lua_State *L, GCfunc *fn);
+
 /* Stop tracing. */
 static void trace_stop(jit_State *J)
 {
@@ -488,6 +493,7 @@ static void trace_stop(jit_State *J)
   TraceNo traceno = J->cur.traceno;
   GCtrace *T = J->curfinal;
   lua_State *L;
+  bclog_stop(J->L, J->fn);
 
   switch (op) {
   case BC_FORL:
@@ -992,5 +998,128 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
 ** 
 */
 
+typedef struct TracedBC {
+  BCOp op;
+  uint8_t flags;
+  uint8_t type;
+  union {
+    uint32_t pc;
+    GCRef func;
+  };
+} TracedBC;
+
+typedef struct BCTrace {
+  GCproto *pt;
+  BCPos startpc;
+  int count;
+  TracedBC bc[0];
+} BCTrace;
+
+#define bclistsz 10000
+TracedBC bclist[bclistsz] = {0};
+static int bcn = 0;
+
+#define bctracessz 1000
+BCTrace* bctrace_list[bctracessz] = {0};
+static int bctrace_n = 0;
+
+static char _bctrace[sizeof(BCTrace)] = {0};
+static BCTrace* bctrace = &_bctrace;
+
+#include <stdio.h>
+
+
+void bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
+{
+  BCPos startpc = proto_bcpos(pt, pc) - 1;
+  printf("bclog(TraceStart): %s: %d\n", proto_chunknamestr(pt), lj_debug_line(pt, startpc)); 
+  bcn = 0;
+  bctrace->pt = pt;
+  bctrace->startpc = proto_bcpos(pt, pc);
+}
+
+void bclog_call(lua_State *L, GCfunc *fn, const BCIns *pc)
+{
+  GCproto *pt = isluafunc(fn) ? funcproto(fn) : NULL;
+  BCOp op = bc_op(pc[-1]);
+  bclist[bcn].op = op;
+  lua_assert(op >= BC_FUNCF);
+  if (pt) {
+    setgcrefp(bclist[bcn].func, pt);
+  } else {
+    bclist[bcn].type = fn->c.ffid;
+    setgcrefp(bclist[bcn].func, fn);
+  }
+  if (++bcn == bclistsz) {
+    lua_assert(0 && "bc list full");
+  }
+}
+
+void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
+{
+  BCPos npc = proto_bcpos(pt, pc) - 1;
+  BCOp op = bc_op(pc[-1]);
+
+  if (op < BC_ISNUM || op == BC_JMP || bc_isret(op) || op == BC_CALLMT || op == BC_CALLT ||
+    op >= BC_FUNCF || (op >= BC_FORI && op <= BC_JLOOP)) {
+    bclist[bcn].pc = npc;
+    bclist[bcn].op = op;
+    if (++bcn == bclistsz) {
+      lua_assert(0 && "bc list full");
+    }
+  }
+}
+
+static int bclog_cmp(BCTrace *t1, BCTrace *t2)
+{
+  if (t1->pt != t2->pt) {
+    return -1;
+  }
+
+  if (t1->startpc != t2->startpc) {
+    return -1;
+  }
+
+  int bcsz = t1->count < t2->count ? t1->count : t2->count;
+  TracedBC *bc1 = t1->bc, *bc2 = t2->bc;
+  int opstop = -1;
+  int pcstop = -1;
+  for (int i = 0; i < bcsz; i++) {
+    if (bc1[i].op != bc2[i].op) {
+      if (opstop == -1) {
+        return i + 1;
+      }
+    } else if(bc1[i].pc != bc2[i].pc) {
+      if (pcstop == -1) {
+        return -(i + 1);
+      }
+    }
+  }
+
+  return 0;
+}
+
+void bclog_stop(lua_State *L, GCfunc *fn)
+{
+  BCTrace* entry = calloc(1, sizeof(BCTrace) + (sizeof(TracedBC) * bcn));
+  bctrace->count = bcn;
+  memcpy(entry, bctrace, sizeof(BCTrace));
+  memcpy(entry->bc, bclist, sizeof(TracedBC) * bcn);
+  bctrace_list[bctrace_n++] = entry;
+
+  for (int i = 0; i < (bctrace_n-1); i++) {
+    int result = bclog_cmp(bctrace_list[i], entry);
+    if (result == 0) {
+      printf("bclog(IsDuplicate): of trace %d\n", i);
+      break;
+    }
+  }
+
+}
+
+void bclog_reset(lua_State *L)
+{
+  bcn = 0;
+}
 
 #endif
