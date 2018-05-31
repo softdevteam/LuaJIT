@@ -415,10 +415,13 @@ typedef struct TracedBC {
   BCOp op;
   uint8_t flags;
   uint8_t type;
-  uint32_t pc;
+  union {
+    uint32_t pc;
+    GCRef func;
+  };
 } TracedBC;
 
-static const int bclistsz = 10000;
+#define bclistsz 10000
 TracedBC bclist[bclistsz] = {0};
 static int bcn = 0;
 
@@ -449,10 +452,13 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
     if (1) {
       BCPos npc = proto_bcpos(pt, pc) - 1;
       BCOp op = bc_op(pc[-1]);
-      bclist[bcn].pc = npc;
-      bclist[bcn].op = op;
-      if (++bcn == bclistsz) {
-        lua_assert(0 && "bc list full");
+      if (op < BC_ISNUM || op == BC_JMP || bc_isret(op) || op == BC_CALLMT || op == BC_CALLT ||
+          op >= BC_FUNCF || (op >= BC_FORI && op <= BC_JLOOP)) {
+        bclist[bcn].pc = npc;
+        bclist[bcn].op = op;
+        if (++bcn == bclistsz) {
+          lua_assert(0 && "bc list full");
+        }
       }
     }
   }
@@ -520,6 +526,22 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, BCIns *pc)
 #ifdef LUA_USE_ASSERT
     ptrdiff_t delta = L->top - L->base;
 #endif
+    if (1) {
+      GCfunc *func = curr_func(J->L);
+      GCproto *pt = isluafunc(func) ? funcproto(func) : NULL;
+      BCOp op = bc_op(pc[-1]);
+      bclist[bcn].op = op;
+      lua_assert(op >= BC_FUNCF);
+      if (pt) {
+        setgcrefp(bclist[bcn].func, pt);
+      } else {
+        bclist[bcn].type = func->c.ffid;
+        setgcrefp(bclist[bcn].func, func);
+      }
+      if (++bcn == bclistsz) {
+        lua_assert(0 && "bc list full");
+      }
+    }
     /* Record the FUNC* bytecodes, too. */
     lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
     lua_assert(L->top - L->base == delta);
