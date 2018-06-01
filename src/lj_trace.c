@@ -484,6 +484,21 @@ static void trace_start(jit_State *J)
 
 void bclog_stop(lua_State *L, GCfunc *fn);
 
+static void trace_patchbc(jit_State *J, GCtrace *T)
+{
+  BCIns *pc = mref(T->startpc, BCIns);
+  BCOp op = bc_op(T->startins);
+  GCproto *pt = &gcref(T->startpt)->pt;
+
+  /* Patch bytecode of starting instruction in root trace. */
+  setbc_op(pc, (int)op+(int)BC_JLOOP-(int)BC_LOOP);
+  setbc_d(pc, T->traceno);
+
+  /* Add to root trace chain in prototype. */
+  T->nextroot = pt->trace;
+  pt->trace = (TraceNo1)T->traceno;
+}
+
 /* Stop tracing. */
 static void trace_stop(jit_State *J)
 {
@@ -495,11 +510,14 @@ static void trace_stop(jit_State *J)
   lua_State *L;
   bclog_stop(J->L, J->fn);
 
+  lua_assert(op != BC_LOOP || J->cur.root == 0);
+
   switch (op) {
+  case BC_LOOP:
+    break;
   case BC_FORL:
     setbc_op(pc+bc_j(J->cur.startins), BC_JFORI);  /* Patch FORI, too. */
     /* fallthrough */
-  case BC_LOOP:
   case BC_ITERL:
   case BC_FUNCF:
     /* Patch bytecode of starting instruction in root trace. */
@@ -538,6 +556,15 @@ static void trace_stop(jit_State *J)
   default:
     lua_assert(0);
     break;
+  }
+
+  if (op == BC_LOOP) {
+    /* Add to root trace chain in prototype. */
+    T->nextroot = pt->trace;
+    pt->trace = (TraceNo1)T->traceno;
+    if (pt->trace != 0) {
+     
+    }
   }
 
   /* Commit new mcode only after all patching is done. */
@@ -1014,8 +1041,13 @@ typedef struct BCTrace BCTrace;
 struct BCTrace {
   GCproto *pt;
   BCPos startpc;
-  int count;
+  GCfunc* stopfn;
+  uint16_t stopffid;
+  uint16_t flags;
+  int bcsz;
   int id;
+  int groupid;
+  int seen;
   BCTrace *prev_same;
   TracedBC bc[0];
 };
@@ -1027,6 +1059,7 @@ static int bcn = 0;
 #define bctracessz 1000
 BCTrace* bctrace_list[bctracessz] = {0};
 static int bctrace_n = 0;
+static int group_count = 0;
 
 static char _bctrace[sizeof(BCTrace)] = {0};
 static BCTrace* bctrace = (BCTrace *)&_bctrace;
@@ -1075,7 +1108,7 @@ void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
   }
 }
 
-static int bclog_cmp(BCTrace *t1, BCTrace *t2)
+static int bclog_cmp(BCTrace *t1, BCTrace *t2, TracedBC *t2_bc)
 {
   if (t1->pt != t2->pt) {
     return -1;
@@ -1085,8 +1118,8 @@ static int bclog_cmp(BCTrace *t1, BCTrace *t2)
     return -1;
   }
 
-  int bcsz = t1->count < t2->count ? t1->count : t2->count;
-  TracedBC *bc1 = t1->bc, *bc2 = t2->bc;
+  int bcsz = t1->bcsz < t2->bcsz ? t1->bcsz : t2->bcsz;
+  TracedBC *bc1 = t1->bc, *bc2 = t2_bc ? t2_bc : t2->bc;
   int opstop = -1;
   int pcstop = -1;
   for (int i = 0; i < bcsz; i++) {
@@ -1104,35 +1137,65 @@ static int bclog_cmp(BCTrace *t1, BCTrace *t2)
   return 0;
 }
 
+static BCTrace *save_bctrace(BCTrace *src, TracedBC *bc, int bcsz)
+{
+  BCTrace* entry = calloc(1, sizeof(BCTrace) + (sizeof(TracedBC) * bcsz));
+  memcpy(entry, src, sizeof(BCTrace));
+  memcpy(entry->bc, bc, sizeof(TracedBC) * bcsz);
+  bctrace_list[bctrace_n++] = entry;
+  return entry;
+}
+
 void bclog_stop(lua_State *L, GCfunc *fn)
 {
-  BCTrace* entry = calloc(1, sizeof(BCTrace) + (sizeof(TracedBC) * bcn));
-  bctrace->count = bcn;
+  bctrace->bcsz = bcn;
   bctrace->id = bctrace_n;
-  memcpy(entry, bctrace, sizeof(BCTrace));
-  memcpy(entry->bc, bclist, sizeof(TracedBC) * bcn);
-  bctrace_list[bctrace_n++] = entry;
+  bctrace->groupid = -1;
+  bctrace->stopfn = fn;
+  bctrace->stopffid = fn->c.ffid;
 
-
-  if (bctrace_n == 1) {
+  if (bctrace_n == 0) {
+    save_bctrace(bctrace, bclist, bcn);
     return;
   }
 
-  for (int i = (bctrace_n-2); i >= 0 ; i--) {
-    int result = bclog_cmp(bctrace_list[i], entry);
+  int fullmatch = -1;
+  int partial = 0;
+  int best = 0;
+
+  for (int i = (bctrace_n-2); i >= 0; i--) {
+    int result = bclog_cmp(bctrace_list[i], bctrace, bclist);
     if (result == 0) {
-      entry->prev_same = bctrace_list[i];
-
-      BCTrace* chain = bctrace_list[i];
-      while (chain->prev_same) {
-        lua_assert(chain->prev_same->id < chain->id);
-        chain = chain->prev_same;
-      }
-
-      printf("bclog(IsDuplicate): of trace %d\n", chain->id);
+      fullmatch = i;
       break;
+    } else if (result > 0 && abs(result) > best) {
+      best = result;
+      partial = i;
     }
   }
+
+  if (fullmatch != -1) {
+    BCTrace *trace = bctrace_list[fullmatch];
+    trace->seen++;
+    printf("bclog(IsDuplicate): of trace %d\n", trace->id);
+    return;
+  }
+
+  BCTrace *entry = save_bctrace(bctrace, bclist, bcn);
+ // entry->prev_same = bctrace_list[fullmatch];
+/*
+  BCTrace* chain = bctrace_list[fullmatch];
+
+  if (chain->prev_same) {
+    while (chain->prev_same) {
+      lua_assert(chain->prev_same->id < chain->id);
+      chain = chain->prev_same;
+    }
+  } else {
+    bctrace_list[fullmatch]->groupid = group_count++;
+  }
+  entry->groupid = chain->groupid;
+  */
 
 }
 
