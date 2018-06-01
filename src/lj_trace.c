@@ -1008,12 +1008,17 @@ typedef struct TracedBC {
   };
 } TracedBC;
 
-typedef struct BCTrace {
+struct BCTrace;
+typedef struct BCTrace BCTrace;
+
+struct BCTrace {
   GCproto *pt;
   BCPos startpc;
   int count;
+  int id;
+  BCTrace *prev_same;
   TracedBC bc[0];
-} BCTrace;
+};
 
 #define bclistsz 10000
 TracedBC bclist[bclistsz] = {0};
@@ -1024,7 +1029,7 @@ BCTrace* bctrace_list[bctracessz] = {0};
 static int bctrace_n = 0;
 
 static char _bctrace[sizeof(BCTrace)] = {0};
-static BCTrace* bctrace = &_bctrace;
+static BCTrace* bctrace = (BCTrace *)&_bctrace;
 
 #include <stdio.h>
 
@@ -1032,7 +1037,7 @@ static BCTrace* bctrace = &_bctrace;
 void bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
 {
   BCPos startpc = proto_bcpos(pt, pc) - 1;
-  printf("bclog(TraceStart): %s: %d\n", proto_chunknamestr(pt), lj_debug_line(pt, startpc)); 
+  printf("bclog(TraceStart, #%d): %s: %d\n", bctrace_n, proto_chunknamestr(pt), lj_debug_line(pt, startpc));
   bcn = 0;
   bctrace->pt = pt;
   bctrace->startpc = proto_bcpos(pt, pc);
@@ -1103,14 +1108,28 @@ void bclog_stop(lua_State *L, GCfunc *fn)
 {
   BCTrace* entry = calloc(1, sizeof(BCTrace) + (sizeof(TracedBC) * bcn));
   bctrace->count = bcn;
+  bctrace->id = bctrace_n;
   memcpy(entry, bctrace, sizeof(BCTrace));
   memcpy(entry->bc, bclist, sizeof(TracedBC) * bcn);
   bctrace_list[bctrace_n++] = entry;
 
-  for (int i = 0; i < (bctrace_n-1); i++) {
+
+  if (bctrace_n == 1) {
+    return;
+  }
+
+  for (int i = (bctrace_n-2); i >= 0 ; i--) {
     int result = bclog_cmp(bctrace_list[i], entry);
     if (result == 0) {
-      printf("bclog(IsDuplicate): of trace %d\n", i);
+      entry->prev_same = bctrace_list[i];
+
+      BCTrace* chain = bctrace_list[i];
+      while (chain->prev_same) {
+        lua_assert(chain->prev_same->id < chain->id);
+        chain = chain->prev_same;
+      }
+
+      printf("bclog(IsDuplicate): of trace %d\n", chain->id);
       break;
     }
   }
