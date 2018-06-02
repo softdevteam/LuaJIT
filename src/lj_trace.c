@@ -1066,12 +1066,27 @@ static BCTrace* bctrace = (BCTrace *)&_bctrace;
 
 #include <stdio.h>
 
+typedef struct BCTraceState {
+  TracedBC tracedbc[bclistsz];
+  int bcn;
+  BCTrace* bctraces[bctracessz];
+  BCTrace curr;
+} BCTraceState;
+
+static int depth = 0;
+
+void bclog_reset(lua_State *L)
+{
+  bcn = 0;
+  depth = 0;
+  memset(bctrace, 0, sizeof(_bctrace));
+}
 
 void bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
 {
+  bclog_reset(L);
   BCPos startpc = proto_bcpos(pt, pc) - 1;
   printf("bclog(TraceStart, #%d): %s: %d\n", bctrace_n, proto_chunknamestr(pt), lj_debug_line(pt, startpc));
-  bcn = 0;
   bctrace->pt = pt;
   bctrace->startpc = proto_bcpos(pt, pc);
 }
@@ -1082,6 +1097,9 @@ void bclog_call(lua_State *L, GCfunc *fn, const BCIns *pc)
   BCOp op = bc_op(pc[-1]);
   bclist[bcn].op = op;
   lua_assert(op >= BC_FUNCF);
+  if (op >= BC_FUNCF && op <= BC_JFUNCV) {
+    depth++;
+  }
   if (pt) {
     setgcrefp(bclist[bcn].func, pt);
   } else {
@@ -1097,6 +1115,16 @@ void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
 {
   BCPos npc = proto_bcpos(pt, pc) - 1;
   BCOp op = bc_op(pc[-1]);
+
+  if (op >= BC_FUNCF && op <= BC_JFUNCV) {
+    depth++;
+  } else if (op == BC_CALLMT || op == BC_CALLT) {
+    /* Pre-decrement */
+    depth--;
+  } else if (bc_isret(op)) {
+    depth--;
+  }
+  lua_assert(depth >= 0);
 
   if (op < BC_ISNUM || op == BC_JMP || bc_isret(op) || op == BC_CALLMT || op == BC_CALLT ||
     op >= BC_FUNCF || (op >= BC_FORI && op <= BC_JLOOP)) {
@@ -1177,7 +1205,7 @@ void bclog_stop(lua_State *L, GCfunc *fn)
   if (fullmatch != -1) {
     BCTrace *trace = bctrace_list[fullmatch];
     trace->seen++;
-    printf("bclog(IsDuplicate): of trace %d\n", trace->id);
+    printf("bclog(IsDuplicate): of trace %d, seen %d\n", trace->id, trace->seen);
     return;
   }
 
@@ -1197,11 +1225,6 @@ void bclog_stop(lua_State *L, GCfunc *fn)
   entry->groupid = chain->groupid;
   */
 
-}
-
-void bclog_reset(lua_State *L)
-{
-  bcn = 0;
 }
 
 #endif
