@@ -99,7 +99,7 @@ void lj_dispatch_init_hotcount(global_State *g)
 #define DISPMODE_JIT	0x10	/* JIT compiler on. */
 #define DISPMODE_REC	0x20	/* Recording active. */
 #define DISPMODE_PROF	0x40	/* Profiling active. */
-#define DISPMODE_COND   0x80
+#define DISPMODE_REC_CF 0x80
 
 /* Update dispatch table depending on various flags. */
 void lj_dispatch_update(global_State *g)
@@ -108,8 +108,11 @@ void lj_dispatch_update(global_State *g)
   uint8_t mode = 0;
 #if LJ_HASJIT
   mode |= (G2J(g)->flags & JIT_F_ON) ? DISPMODE_JIT : 0;
-  mode |= G2J(g)->state != LJ_TRACE_IDLE ?
-	    (DISPMODE_REC|DISPMODE_INS|DISPMODE_CALL) : 0;
+  if (G2J(g)->state != LJ_TRACE_IDLE) {
+    mode |= (DISPMODE_REC|DISPMODE_INS|DISPMODE_CALL);
+  } else if (G2J(g)->recbc) {
+    mode |= DISPMODE_REC_CF|DISPMODE_CALL;
+  }
 #endif
 #if LJ_HASPROFILE
   mode |= (g->hookmask & HOOK_PROFILE) ? (DISPMODE_PROF|DISPMODE_INS) : 0;
@@ -117,16 +120,13 @@ void lj_dispatch_update(global_State *g)
   mode |= (g->hookmask & (LUA_MASKLINE|LUA_MASKCOUNT)) ? DISPMODE_INS : 0;
   mode |= (g->hookmask & LUA_MASKCALL) ? DISPMODE_CALL : 0;
   mode |= (g->hookmask & LUA_MASKRET) ? DISPMODE_RET : 0;
-  if (g->vmstate == LJ_VMST_CMPBC) {
-    mode |= DISPMODE_COND|DISPMODE_CALL;
-  }
   if (oldmode != mode) {  /* Mode changed? */
     ASMFunction *disp = G2GG(g)->dispatch;
     ASMFunction f_forl, f_iterl, f_loop, f_funcf, f_funcv;
     g->dispatchmode = mode;
 
     /* Hotcount if JIT is on, but not while recording. */
-    if ((mode & (DISPMODE_JIT|DISPMODE_REC)) == DISPMODE_JIT) {
+    if ((mode & (DISPMODE_JIT|DISPMODE_REC|DISPMODE_REC_CF)) == DISPMODE_JIT) {
       f_forl = makeasmfunc(lj_bc_ofs[BC_FORL]);
       f_iterl = makeasmfunc(lj_bc_ofs[BC_ITERL]);
       f_loop = makeasmfunc(lj_bc_ofs[BC_LOOP]);
@@ -145,26 +145,30 @@ void lj_dispatch_update(global_State *g)
     disp[GG_LEN_DDISP+BC_LOOP] = f_loop;
 
     /* Set dynamic instruction dispatch. */
-    if ((oldmode ^ mode) & (DISPMODE_PROF|DISPMODE_REC|DISPMODE_INS|DISPMODE_COND)) {
+    if ((oldmode ^ mode) & (DISPMODE_PROF|DISPMODE_REC|DISPMODE_INS|DISPMODE_REC_CF)) {
       /* Need to update the whole table. */
       if (!(mode & DISPMODE_INS)) {  /* No ins dispatch? */
 	/* Copy static dispatch table to dynamic dispatch table. */
 	memcpy(&disp[0], &disp[GG_LEN_DDISP], GG_LEN_SDISP*sizeof(ASMFunction));
 	/* Overwrite with dynamic return dispatch. */
-	if ((mode & DISPMODE_RET)) {
-	  disp[BC_RETM] = lj_vm_rethook;
-	  disp[BC_RET] = lj_vm_rethook;
-	  disp[BC_RET0] = lj_vm_rethook;
-	  disp[BC_RET1] = lj_vm_rethook;
+	if ((mode & (DISPMODE_RET|DISPMODE_REC_CF))) {
+          ASMFunction f = (mode & DISPMODE_RET) ? lj_vm_rethook : lj_vm_inshook;
+	  disp[BC_RETM] = f;
+	  disp[BC_RET]  = f;
+	  disp[BC_RET0] = f;
+	  disp[BC_RET1] = f;
 	}
 
         /* We only want to capture control flow changes */
-        if (mode & DISPMODE_COND) {
+        if (mode & DISPMODE_REC_CF) {
           uint32_t i;
-          for (i = BC_ISLT; i < BC_ISNUM; i++) {
-            disp[i] = lj_vm_inshook;
+          for (i = BC_ISLT; i <= BC_ISNUM; i++) {
+            disp[i] = lj_vm_bclog;
           }
-          disp[BC_JMP] = lj_vm_inshook;
+          for (i = BC_FORI; i <= BC_JLOOP; i++) {
+            disp[i] = lj_vm_bclog;
+          }
+          disp[BC_JMP] = lj_vm_bclog;
         }
 
       } else {
@@ -437,10 +441,12 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
       ptrdiff_t delta = L->top - L->base;
 #endif
       J->L = L;
+      if (G2J(g)->recbc) {
+        bclog_ins(L, pt, pc);
+      }
       lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
       lua_assert(L->top - L->base == delta);
-    }
-    if (g->vmstate == ~LJ_VMST_CMPBC || g->vmstate == ~LJ_VMST_RECORD) {
+    } else if (G2J(g)->recbc) {
       bclog_ins(L, pt, pc);
     }
   }
@@ -510,11 +516,13 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, BCIns *pc)
 #ifdef LUA_USE_ASSERT
     ptrdiff_t delta = L->top - L->base;
 #endif
-    bclog_call(L, fn, pc);
+    if (G2J(g)->recbc) {
+      bclog_call(L, fn, pc);
+    }
     /* Record the FUNC* bytecodes, too. */
     lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
     lua_assert(L->top - L->base == delta);
-  } else if(g->vmstate == ~LJ_VMST_CMPBC || g->vmstate == ~LJ_VMST_RECORD) {
+  } else if(G2J(g)->recbc) {
     bclog_call(L, fn, pc);
   }
 #endif
