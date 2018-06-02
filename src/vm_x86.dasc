@@ -2669,6 +2669,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  test RDL, LUA_MASKLINE
   |  jz >5
   |1:
+  |->vm_bclog:			// Dispatch target for return hooks.
   |  mov L:RB, SAVE_L
   |  mov L:RB->base, BASE
   |  mov FCARG2, PC			// Caveat: FCARG2 == BASE
