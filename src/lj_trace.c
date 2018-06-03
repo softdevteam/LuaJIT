@@ -562,12 +562,15 @@ static void trace_stop(jit_State *J)
   }
 
   if (op == BC_LOOP) {
-    /* Add to root trace chain in prototype. */
+    /* Add to root trace chain in prototype. */ 
+    if (pt->trace != 0) {
+      GCtrace* root = traceref(J, pt->trace);
+      for (; root->nextroot; root = traceref(J, root->nextroot)) {
+        lua_assert(root != T && root->traceno != traceno);
+      }
+    }
     J->cur.nextroot = pt->trace;
     pt->trace = (TraceNo1)traceno;
-    if (pt->trace != 0) {
-     
-    }
   }
 
   /* Commit new mcode only after all patching is done. */
@@ -1104,18 +1107,16 @@ int bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
   bctrace->startpc = proto_bcpos(pt, pc);
   
   if (pt->trace) {
-    GCtrace *root, *found = NULL;
-    do {
-      root = traceref(J, pt->trace);
-
+    GCtrace *root = traceref(J, pt->trace), *found = NULL;
+    for (; root->nextroot; root = traceref(J, root->nextroot)) {
       if (mref(root->startpc, const BCIns) == pc) {
         found = root;
         break;
       }
-    } while(root->nextroot);
+    }
 
     if (found) {
-      /* Set the byte range of the loop so we know when we've left it */
+      /* Track the byte range of the loop so we know when we've left it */
       looppt = pt;
       loopstart = pc + 1;
       loopend = proto_bc(pt) + bctrace->startpc + bc_j(*pc);
@@ -1226,6 +1227,15 @@ void bclog_call(lua_State *L, GCfunc *fn, const BCIns *pc)
   }
 }
 
+int loopcount = 0;
+
+typedef struct LoopInfo {
+  GCproto *pt;
+  const BCIns *start;
+  BCPos length;
+  int depth;
+} LoopInfo;
+
 void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
 {
   BCPos npc = proto_bcpos(pt, pc) - 1;
@@ -1240,12 +1250,26 @@ void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
     depth--;
   }
 
+  /* If were in the starting function and not doing a full trace */
   if (pt == bctrace->pt && loopend) {
     if (pc >= loopstart && pc <= loopend) {
+      if (pc == (loopend-1)) {
+        loopcount++;
+      }
       lastlpc = pc;
-    } else if(loopend && pt == bctrace->pt && pc > loopend) {
-      bclog_stop(L, curr_func(L), pc);
+    } else {
+      if (loopend && pt == bctrace->pt && pc > loopend) {
+        bclog_stop(L, curr_func(L), pc);
+      }
     }
+  }
+
+  if (op >= BC_FORI && op <= BC_JLOOP) {
+
+    if (op == BC_FORI || op == BC_LOOP || op == BC_) {
+
+    }
+
   }
 
   //lua_assert(depth >= 0);
