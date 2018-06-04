@@ -1088,6 +1088,19 @@ const BCIns *loopend = NULL;
 const BCIns *loopstart = NULL;
 const BCIns *lastlpc = NULL;
 
+int loopcount = 0;
+
+typedef struct LoopInfo {
+  GCproto *pt;
+  const BCIns *start;
+  BCPos length;
+  int depth;
+  int count;
+} LoopInfo;
+
+LoopInfo loopstack[200] = {0};
+int loopdepth = 0;
+
 void bclog_reset(lua_State *L)
 {
   bcn = 0;
@@ -1095,6 +1108,21 @@ void bclog_reset(lua_State *L)
   memset(bctrace, 0, sizeof(_bctrace));
   loopend = loopstart = lastlpc = NULL;
   looppt = NULL;
+  loopdepth = 0;
+}
+
+static void bclog_pushloop(lua_State *L, GCproto *pt, const BCIns *pc)
+{
+  lua_assert(loopdepth == 0 || (loopstack[loopdepth].depth != depth || loopstack[loopdepth].pt == pt));
+  loopstack[loopdepth].depth = depth;
+  loopstack[loopdepth].pt = pt;
+  loopstack[loopdepth].start = pc - bc_j(*pc);
+  loopstack[loopdepth].length = bc_j(*pc)+1;
+  loopstack[loopdepth].count = 0;
+  if (bc_op(*pc) == BC_LOOP) {
+
+  }
+  loopdepth++;
 }
 
 int bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
@@ -1106,6 +1134,11 @@ int bclog_tracestart(lua_State *L, GCproto *pt, const BCIns *pc)
   bctrace->pt = pt;
   bctrace->startpc = proto_bcpos(pt, pc);
   
+  if (1)
+  {
+    bclog_pushloop(L, pt, pc-1);
+  }
+
   if (pt->trace) {
     GCtrace *root = traceref(J, pt->trace), *found = NULL;
     for (; root->nextroot; root = traceref(J, root->nextroot)) {
@@ -1227,14 +1260,7 @@ void bclog_call(lua_State *L, GCfunc *fn, const BCIns *pc)
   }
 }
 
-int loopcount = 0;
 
-typedef struct LoopInfo {
-  GCproto *pt;
-  const BCIns *start;
-  BCPos length;
-  int depth;
-} LoopInfo;
 
 void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
 {
@@ -1247,11 +1273,14 @@ void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
     /* Pre-decrement */
     depth--;
   } else if (bc_isret(op)) {
+    if (loopdepth > 0 && loopstack[loopdepth-1].depth == depth) {
+      loopdepth--;
+    }
     depth--;
   }
 
   /* If were in the starting function and not doing a full trace */
-  if (pt == bctrace->pt && loopend) {
+  if ((pt == bctrace->pt && depth == 0) && loopend) {
     if (pc >= loopstart && pc <= loopend) {
       if (pc == (loopend-1)) {
         loopcount++;
@@ -1265,11 +1294,35 @@ void bclog_ins(lua_State *L, GCproto *pt, const BCIns *pc)
   }
 
   if (op >= BC_FORI && op <= BC_JLOOP) {
-
-    if (op == BC_FORI || op == BC_LOOP || op == BC_) {
+    if (op == BC_JFORI || op == BC_JLOOP || op == BC_JITERL) {
+      /* Stop tracing when hitting a JIT'ed loop like the full tracer */
+      bclog_stop(L, curr_func(L), pc);
+    } else if (op == BC_FORI || op == BC_JLOOP || op == BC_JITERL) {
 
     }
 
+    int sameloop = 0;
+
+    LoopInfo *currloop = loopstack + loopdepth-1;
+
+    if (op == BC_LOOP && loopdepth > 0 && currloop->depth == depth && pc == (currloop->start + currloop->length))
+    {
+      currloop->count++;
+      loopcount++;
+      sameloop = 1;
+    }
+
+    if (op == BC_FORI || (op == BC_LOOP && !sameloop)) {
+      bclog_pushloop(L, pt, pc-1);
+    }
+
+  } else if(op == BC_JMP) {
+   int offset = bc_j(pc[-1]);
+   BCOp *jmptarget = pc - 1 + offset;
+   if (bc_op(*jmptarget) == BC_ITERL)
+   {
+     lua_assert(0);
+   }
   }
 
   //lua_assert(depth >= 0);
