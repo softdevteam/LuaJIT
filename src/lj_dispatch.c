@@ -152,7 +152,7 @@ void lj_dispatch_update(global_State *g)
 	memcpy(&disp[0], &disp[GG_LEN_DDISP], GG_LEN_SDISP*sizeof(ASMFunction));
 	/* Overwrite with dynamic return dispatch. */
 	if ((mode & (DISPMODE_RET|DISPMODE_REC_CF))) {
-          ASMFunction f = (mode & DISPMODE_RET) ? lj_vm_rethook : lj_vm_inshook;
+      ASMFunction f = (mode & DISPMODE_REC_CF) ? lj_vm_bclog : lj_vm_inshook;
 	  disp[BC_RETM] = f;
 	  disp[BC_RET]  = f;
 	  disp[BC_RET0] = f;

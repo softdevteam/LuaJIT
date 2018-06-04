@@ -372,7 +372,7 @@ typedef struct GCproto {
   uint8_t flags;	/* Miscellaneous flags (see below). */
   uint16_t trace;	/* Anchor for chain of root traces. */
   uint16_t tracecmp;
-  uint16_t unused;
+  uint16_t unused2;
   /* ------ The following fields are for debugging/tracebacks only ------ */
   GCRef chunkname;	/* Name of the chunk this function was defined in. */
   BCLine firstline;	/* First line of the function definition. */
