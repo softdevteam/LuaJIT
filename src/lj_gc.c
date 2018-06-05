@@ -31,6 +31,9 @@
 #include "lj_alloc.h"
 #include "lj_vmperf.h"
 
+#include <mmintrin.h>
+#include <xmmintrin.h>
+
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40
 #define GCSWEEPCOST	10
