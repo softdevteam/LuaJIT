@@ -30,6 +30,8 @@
 #include "lj_dispatch.h"
 #include "lj_alloc.h"
 #include "lj_vmperf.h"
+#include "gcdebug.h"
+#include "stdio.h"
 
 #include <mmintrin.h>
 #include <xmmintrin.h>
@@ -708,7 +710,7 @@ void lj_gc_setfinalizable(lua_State *L, GCobj *o, GCtab *mt)
   if (!gc_ishugeblock(o)) {
     arena_addfinalizer(L, ptr2arena(o), o);
   } else {
-    hugeblock_setfinalizable(L, o);
+    hugeblock_setfinalizable(G(L), o);
   }
   o->gch.marked |= LJ_GC_FINALIZED;
 }
