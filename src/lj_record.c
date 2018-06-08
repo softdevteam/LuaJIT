@@ -555,7 +555,7 @@ static int innerloopleft(jit_State *J, const BCIns *pc)
     if (mref(J->penalty[i].pc, const BCIns) == pc) {
       if ((J->penalty[i].reason == LJ_TRERR_LLEAVE ||
 	   J->penalty[i].reason == LJ_TRERR_LINNER) &&
-	  J->penalty[i].val >= 2*PENALTY_MIN)
+	  J->penalty[i].val >= 2*PENALTY_MIN_LOOP)
 	return 1;
       break;
     }
@@ -581,7 +581,7 @@ static void rec_loop_interp(jit_State *J, const BCIns *pc, LoopEvent ev)
       if (bc_j(*pc) != -1 && !innerloopleft(J, pc))
 	lj_trace_err(J, LJ_TRERR_LINNER);  /* Root trace hit an inner loop. */
       if ((ev != LOOPEV_ENTERLO &&
-	   J->loopref && J->cur.nins - J->loopref > 24) || --J->loopunroll < 0)
+	   J->loopref && J->cur.nins - J->loopref > 100) || --J->loopunroll < 0)
 	lj_trace_err(J, LJ_TRERR_LUNROLL);  /* Limit loop unrolling. */
       J->loopref = J->cur.nins;
     }
@@ -1667,9 +1667,11 @@ static void check_call_unroll(jit_State *J, TraceNo lnk)
   } else {
     if (count > J->param[JIT_P_callunroll]) {
       if (lnk) {  /* Possible tail- or up-recursion. */
+        GCproto *pt = (GCproto *)(((char *)J->pc)- sizeof(GCproto));
+        lua_assert(bc_op(*J->pc) == BC_JFUNCF);
 	lj_trace_flush(J, lnk);  /* Flush trace that only returns. */
 	/* Set a small, pseudo-random hotcount for a quick retry of JFUNC*. */
-	hotcount_set(J2GG(J), J->pc+1, LJ_PRNG_BITS(J, 4));
+        pt->hotcount = LJ_PRNG_BITS(J, 4);
       }
       lj_trace_err(J, LJ_TRERR_CUNROLL);
     }
@@ -2411,6 +2413,9 @@ void lj_record_ins(jit_State *J)
   case BC_IFUNCF:
   case BC_IFUNCV:
     lj_trace_err(J, LJ_TRERR_BLACKL);
+    break;
+
+  case BC_LOOPHC:
     break;
 
   case BC_JMP:

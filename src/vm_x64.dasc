@@ -210,10 +210,19 @@
 |  jmp aword [DISPATCH+OP*8]
 |.endmacro
 |
+|.macro ins_NEXT2
+|  mov RCd, [PC+4]
+|  movzx RAd, RCH
+|  movzx OP, RCL
+|  add PC, 8
+|  shr RCd, 16
+|  jmp aword [DISPATCH+OP*8]
+|.endmacro
 |// Instruction footer.
 |.if 1
 |  // Replicated dispatch. Less unpredictable branches, but higher I-Cache use.
 |  .define ins_next, ins_NEXT
+|  .define ins_next2, ins_NEXT2
 |  .define ins_next_, ins_NEXT
 |.else
 |  // Common dispatch. Lower I-Cache use, only one (very) unpredictable branch.
@@ -221,6 +230,9 @@
 |  // Around 10%-30% slower on Core2, a lot more slower on P4.
 |  .macro ins_next
 |    jmp ->ins_next
+|  .endmacro
+|  .macro ins_next2
+|    jmp ->ins_next2
 |  .endmacro
 |  .macro ins_next_
 |  ->ins_next:
@@ -322,18 +334,12 @@
 |
 |// Decrement hashed hotcount and trigger trace recorder if zero.
 |.macro hotloop, reg
-|  mov reg, PCd
-|  shr reg, 1
-|  and reg, HOTCOUNT_PCMASK
-|  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_LOOP
+|  sub word [PCd+2], 1
 |  jb ->vm_hotloop
 |.endmacro
 |
 |.macro hotcall, reg
-|  mov reg, PCd
-|  shr reg, 1
-|  and reg, HOTCOUNT_PCMASK
-|  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_CALL
+|  sub word [PCd-4+PC2PROTO(hotcount)], 1
 |  jb ->vm_hotcall
 |.endmacro
 |
@@ -4455,16 +4461,21 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_AJ	// RA = base, RD = target
     |  lea RA, [BASE+RA*8]
     |  mov RB, [RA]
-    |  cmp RB, LJ_TNIL; je >1		// Stop if iterator returned nil.
+    |  cmp RB, LJ_TNIL; je >2		// Stop if iterator returned nil.
     if (op == BC_JITERL) {
       |  mov [RA-8], RB
       |  jmp =>BC_JLOOP
+      |2:
+      |  ins_next2 // Skips over BC_LOOPHC
     } else {
       |  branchPC RD			// Otherwise save control var + branch.
       |  mov [RA-8], RB
+      |1:
+      |  ins_next
+      |2: 
+      |  add PC, 4 // Skip over BC_LOOPHC
+      |  jmp <1
     }
-    |1:
-    |  ins_next
     break;
 
   case BC_LOOP:
@@ -4479,6 +4490,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_ILOOP:
     |  ins_A	// RA = base, RD = target (loop extent)
+    |  ins_next2
+    break;
+  case BC_LOOPHC:
     |  ins_next
     break;
 

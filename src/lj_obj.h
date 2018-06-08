@@ -375,6 +375,8 @@ typedef struct GCproto {
   MRef lineinfo;	/* Compressed map from bytecode ins. to source line. */
   MRef uvinfo;		/* Upvalue names. */
   MRef varinfo;		/* Names and compressed extents of local variables. */
+  uint16_t unused;
+  uint16_t hotcount;    /* Hot counter. */
 } GCproto;
 
 /* Flags for prototype. */
@@ -646,6 +648,7 @@ typedef struct global_State {
   BCIns bc_cfunc_ext;	/* Bytecode for external C function calls. */
   GCRef cur_L;		/* Currently executing lua_State. */
   MRef jit_base;	/* Current JIT code L->base or NULL. */
+  MRef saved_jit_base;  /* saved jit_base for lj_err_throw */
   MRef ctype_state;	/* Pointer to C type state. */
   GCRef gcroot[GCROOT_MAX];  /* GC roots. */
 
