@@ -17,6 +17,7 @@
 #include "lj_jitlog_writers.h"
 #include "jitlog.h"
 
+#define mainthread(g) (&G2GG(g)->L)
 
 typedef struct JITLogState {
   SBuf eventbuf; /* Must be first so loggers can reference it just by casting the G(L)->vmevent_data pointer */
@@ -174,8 +175,21 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
 
   for(i = 0; i != pt->sizekgc; i++){
     GCobj *o = proto_kgc(pt, -(i + 1));
+    uint32_t it;
+    switch ((uintptr_t)o & PROTO_KGC_MASK) {
+      case PROTO_KGC_STR: it = LJ_TSTR; break;
+      case PROTO_KGC_PROTO: it = LJ_TPROTO; break;
+#if LJ_HASFFI
+      case PROTO_KGC_CDATA: it = LJ_TCDATA; break;
+#endif
+      default:
+      lua_assert(((uintptr_t)o & PROTO_KGC_MASK) == PROTO_KGC_TABLE);
+      it = LJ_TTAB;
+      break;
+    }
+
     /* We want the string constants to be able to tell what fields are being accessed by the bytecode */
-    if (o->gch.gct == ~LJ_TSTR) {
+    if (it == LJ_TSTR) {
       memorize_string(context, gco2str(o));
     }
   }
@@ -197,9 +211,9 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
     memorize_proto(context, funcproto(fn));
 
     int i;
-    TValue *upvalues = lj_mem_newvec(L, fn->l.nupvalues, TValue);
+    TValue *upvalues = lj_mem_newvec(L, fn->l.nupvalues, TValue, GCPOOL_LEAF);
     for(i = 0; i != fn->l.nupvalues; i++) {
-      upvalues[i] = *uvval(&gcref(fn->l.uvptr[i])->uv);
+      upvalues[i] = *uvval(gco2uv(gcref(fn->l.uvptr[i])));
     }
     log_gcfunc(context->g, fn, funcproto(fn), fn->l.ffid, upvalues, fn->l.nupvalues);
   } else {
@@ -504,7 +518,7 @@ static void write_header(JITLogState *context)
   SBuf sb;
   lj_buf_init(L, &sb);
   bufwrite_strlist(&sb, msgnames, MSGTYPE_MAX);
-  log_header(context->g, 1, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
+  log_header(context->g, 100, 0, sizeof(MSG_header), msgsizes, MSGTYPE_MAX, sbufB(&sb), sbuflen(&sb), cpumodel, model_length, LJ_OS_NAME, (uintptr_t)G2GG(context->g));
   lj_buf_free(context->g, &sb);
 
   write_enum(context, "gcstate", gcstates);
