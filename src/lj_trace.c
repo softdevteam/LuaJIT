@@ -282,12 +282,13 @@ void lj_trace_flushproto(global_State *g, GCproto *pt)
 }
 
 /* Flush all traces. */
-int lj_trace_flushall(lua_State *L)
+int lj_trace_flushall(lua_State *L, int reason)
 {
   jit_State *J = L2J(L);
   ptrdiff_t i;
   if ((J2G(J)->hookmask & HOOK_GC))
     return 1;
+  lj_vmevent_callback(L, VMEVENT_TRACE_FLUSH, (void *)(uintptr_t)reason);
   for (i = (ptrdiff_t)J->sizetrace-1; i > 0; i--) {
     GCtrace *T = traceref(J, i);
     if (T) {
@@ -370,8 +371,13 @@ void lj_trace_freestate(global_State *g)
 /* -- Penalties and blacklisting ------------------------------------------ */
 
 /* Blacklist a bytecode instruction. */
-static void blacklist_pc(GCproto *pt, BCIns *pc)
+static void blacklist_pc(jit_State *J, GCproto *pt, BCIns *pc)
 {
+  lj_vmevent_callback_(J->L, VMEVENT_PROTO_BLACKLISTED, 
+    VMEventData_ProtoBL eventdata;
+    eventdata.pt = pt;
+    eventdata.pc = proto_bcpos(pt, pc);
+  );
   setbc_op(pc, (int)bc_op(*pc)+(int)BC_ILOOP-(int)BC_LOOP);
   pt->flags |= PROTO_ILOOP;
 }
@@ -386,7 +392,7 @@ static void penalty_pc(jit_State *J, GCproto *pt, BCIns *pc, TraceError e)
       val = ((uint32_t)J->penalty[i].val << 1) +
 	    LJ_PRNG_BITS(J, PENALTY_RNDBITS);
       if (val > PENALTY_MAX) {
-	blacklist_pc(pt, pc);  /* Blacklist it, if that didn't help. */
+	blacklist_pc(J, pt, pc);  /* Blacklist it, if that didn't help. */
 	return;
       }
       goto setpenalty;
@@ -425,7 +431,7 @@ static void trace_start(jit_State *J)
   traceno = trace_findfree(J);
   if (LJ_UNLIKELY(traceno == 0)) {  /* No free trace? */
     lua_assert((J2G(J)->hookmask & HOOK_GC) == 0);
-    lj_trace_flushall(J->L);
+    lj_trace_flushall(J->L, FLUSHREASON_MAX_TRACE);
     J->state = LJ_TRACE_IDLE;  /* Silently ignored. */
     return;
   }
@@ -449,7 +455,7 @@ static void trace_start(jit_State *J)
   setgcref(J->cur.startpt, obj2gco(J->pt));
 
   L = J->L;
-  lj_vmevent_send(L, TRACE,
+  lj_vmevent_send_trace(L, START, &J->cur,
     setstrV(L, L->top++, lj_str_newlit(L, "start"));
     setintV(L->top++, traceno);
     setfuncV(L, L->top++, J->fn);
@@ -529,7 +535,7 @@ static void trace_stop(jit_State *J)
   trace_save(J, T);
 
   L = J->L;
-  lj_vmevent_send(L, TRACE,
+  lj_vmevent_send_trace(L, STOP, T,
     setstrV(L, L->top++, lj_str_newlit(L, "stop"));
     setintV(L->top++, traceno);
     setfuncV(L, L->top++, J->fn);
@@ -590,7 +596,7 @@ static int trace_abort(jit_State *J)
     ptrdiff_t errobj = savestack(L, L->top-1);  /* Stack may be resized. */
     J->cur.link = 0;
     J->cur.linktype = LJ_TRLINK_NONE;
-    lj_vmevent_send(L, TRACE,
+    lj_vmevent_send_trace(L, ABORT, &J->cur,
       TValue *frame;
       const BCIns *pc;
       GCfunc *fn;
@@ -619,7 +625,7 @@ static int trace_abort(jit_State *J)
   if (e == LJ_TRERR_DOWNREC)
     return trace_downrec(J);
   else if (e == LJ_TRERR_MCODEAL)
-    lj_trace_flushall(L);
+    lj_trace_flushall(L, FLUSHREASON_MAX_MCODE);
   return 0;
 }
 
@@ -860,6 +866,18 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   errcode = lj_vm_cpcall(L, NULL, &exd, trace_exit_cp);
   if (errcode)
     return -errcode;  /* Return negated error code. */
+
+  lj_vmevent_callback_(L, VMEVENT_TRACE_EXIT,
+    VMEventData_TExit eventdata;
+    eventdata.gcexit = G(L)->gc.gcexit;
+    G(L)->gc.gcexit = 0;
+    eventdata.gprs = &ex->gpr;
+    eventdata.gprs_size = sizeof(ex->gpr);
+    eventdata.fprs = &ex->fpr;
+    eventdata.fprs_size = sizeof(ex->fpr);
+    eventdata.spill = &ex->spill;
+    eventdata.spill_size = sizeof(ex->spill);
+  );
 
   if (!(LJ_HASPROFILE && (G(L)->hookmask & HOOK_PROFILE)))
     lj_vmevent_send(L, TEXIT,

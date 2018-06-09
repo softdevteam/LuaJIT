@@ -26,8 +26,19 @@
 #endif
 #include "lj_trace.h"
 #include "lj_vm.h"
+#include "lj_vmevent.h"
 
 #define GCSTEPSIZE	1024u
+#define GCSWEEPMAX	40
+#define GCSWEEPCOST	10
+#define GCFINALIZECOST	100
+
+static void gc_setstate(global_State *g, int newstate)
+{
+  lj_vmevent_callback(&G2GG(g)->L, VMEVENT_GC_STATECHANGE, (void*)(uintptr_t)newstate);
+  g->gc.state = newstate;
+}
+
 
 static void gc_pushgrey(global_State *g, GCArena *a, uint32_t idx)
 {
@@ -1384,7 +1395,7 @@ static size_t gc_onestep(lua_State *L) {
     lua_assert((mrefu(*mref(g->gc.gq, MRef)) & LJ_GC_GSIZE_MASK) == 0);
     g->gc.ssbsize = 0;
     gc_mark_start(g);
-    g->gc.state = GCSpropagate;
+    gc_setstate(g, GCSpropagate);
     return sizeof(global_State);
   case GCSpropagate: {
     MRef *gq = mref(g->gc.gq, MRef);
@@ -1434,13 +1445,13 @@ static size_t gc_onestep(lua_State *L) {
       }
   }
 #endif
-    g->gc.state = GCSatomic;
+    gc_setstate(g, GCSatomic);
     return 0; }
   case GCSatomic:
     if (mrefu(g->jit_base))  /* Don't run atomic phase on trace. */
       return LJ_MAX_MEM;
     lj_gc_atomic(g, L);
-    g->gc.state = GCSsweepstring;
+    gc_setstate(g, GCSsweepstring);
     g->gc.sweeppos = g->strmask + 1;
     g->gc.gqsweeppos = g->gc.gqsize;
     g->gc.hugesweeppos = g->gc.hugemask + 1;
@@ -1448,7 +1459,7 @@ static size_t gc_onestep(lua_State *L) {
   case GCSsweepstring:
     gc_sweep_str(g, &g->strhash[--g->gc.sweeppos]);
     if (!g->gc.sweeppos) {
-      g->gc.state = GCSsweepthread;
+	  gc_setstate(g, GCSsweepthread);
     }
     return sizeof(GCstr) * 4;
   case GCSsweepthread:
@@ -1457,7 +1468,7 @@ static size_t gc_onestep(lua_State *L) {
     } else {
       uint32_t p;
       gc_sweep_uv(&G2GG(g)->L);
-      g->gc.state = GCSsweep;
+      gc_setstate(g, GCSsweep);
       for (p = 0; p < GCPOOL_MAX; ++p) {
 	g->gc.pool[p].freemask = 0;
 	if (mrefu(g->gc.pool[p].bumpbase) < mrefu(g->gc.pool[p].bump)) {
@@ -1477,7 +1488,7 @@ static size_t gc_onestep(lua_State *L) {
     lua_assert((u & LJ_GC_GSIZE_MASK) == 0);
     gc_sweep_arena(g, (GCArena*)(u & ~(LJ_GC_ARENA_SIZE - 1)));
     if (!g->gc.gqsweeppos) {
-      g->gc.state = GCSsweephuge;
+      gc_setstate(g, GCSsweephuge);
     }
     return LJ_GC_ARENA_SIZE/64; }
   case GCSsweephuge:
@@ -1504,7 +1515,7 @@ static size_t gc_onestep(lua_State *L) {
       return 32 * sizeof(MRef);
     }
 #if LJ_HASJIT
-    g->gc.state = GCSsweeptrace;
+    gc_setstate(g, GCSsweeptrace);
     g->gc.sweeppos = G2J(g)->sizetrace;
     return 0;
   case GCSsweeptrace:
@@ -1523,11 +1534,10 @@ static size_t gc_onestep(lua_State *L) {
     }
 #endif
     if (g->gc.finalizenum) {
-	g->gc.state = GCSfinalize;
       g->gc.sweeppos = g->gc.finalizenum;
       g->gc.finalizenum = 0;
     } else {
-      g->gc.state = GCSpause;
+      gc_setstate(g, GCSpause);
       }
     return 0;
   case GCSfinalize:
@@ -1546,7 +1556,7 @@ static size_t gc_onestep(lua_State *L) {
       lj_tab_rehash(L, ctype_ctsG(g)->finalizer);
     }
 #endif
-    g->gc.state = GCSpause;
+    gc_setstate(g, GCSpause);
     return 0;
   default:
     lua_assert(0);
@@ -1564,7 +1574,7 @@ static void gc_abortcycle(lua_State *L)
       MRef *gq = mref(g->gc.gq, MRef), *hugehash;
       uint32_t i, j;
       g->gc.weaknum = 0;
-      g->gc.state = GCSpause;
+      gc_setstate(g, GCSpause);
       for (i = g->gc.gqsize; i-- != 0; ) {
 	GCArena *a = (GCArena*)(mrefu(gq[i]) & ~(LJ_GC_ARENA_SIZE-1));
 	setmref(gq[i], a);
@@ -1675,7 +1685,7 @@ void lj_gc_finalizeall(lua_State *L)
 	gc_finalize(g, L, o);
       }
     } while (g->gc.finalizenum);
-    g->gc.state = GCSatomic;
+    gc_setstate(g, GCSatomic);
     gc_abortcycle(L);
   }
 }
@@ -1717,7 +1727,13 @@ int LJ_FASTCALL lj_gc_step_jit(global_State *g, MSize steps)
   L->base = tvref(G(L)->jit_base);
   L->top = curr_topL(L);
   do {} while (steps-- > 0 && lj_gc_step(L) == 0);
-  return G(L)->gc.state & GCS_nojit;
+  if (G(L)->gc.state & GCS_nojit) {
+    G(L)->gc.gcexit = 1;
+    /* Return 1 to force a trace exit. */
+    return 1;
+  } else {
+    return 0;
+  }
 }
 #endif
 

@@ -28,6 +28,7 @@
 #include "lj_lex.h"
 #include "lj_alloc.h"
 #include "luajit.h"
+#include "lj_vmevent.h"
 
 /* -- Stack handling ------------------------------------------------------ */
 
@@ -255,6 +256,7 @@ static TValue *cpfinalize(lua_State *L, lua_CFunction dummy, void *ud)
 LUA_API void luaJIT_preclose(lua_State *L)
 {
   global_State *g = G(L);
+  lj_vmevent_callback(&G2GG(g)->L, VMEVENT_STATE_CLOSING, L);
   L = &G2GG(g)->L;  /* Only the main thread can be closed. */
 #if LJ_HASPROFILE
   luaJIT_profile_stop(L);

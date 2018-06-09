@@ -12,6 +12,7 @@
 #include "luajit.h"
 #include "lj_def.h"
 #include "lj_arch.h"
+#include "vmevent.h"
 
 /* -- Memory references (32 bit address space) ---------------------------- */
 
@@ -645,7 +646,7 @@ typedef struct GCState {
   MSize gqsweeppos;
   MSize hugesweeppos;
   uint8_t state;
-  uint8_t unused;
+  uint8_t gcexit;
   uint8_t fmark;
   uint8_t ssbsize;
   GCRef ssb[LJ_GC_SSB_CAPACITY];
@@ -701,6 +702,9 @@ typedef struct global_State {
   MRef jit_base;	/* Current JIT code L->base or NULL. */
   MRef ctype_state;	/* Pointer to C type state. */
   GCRef gcroot[GCROOT_MAX];  /* GC roots. */
+
+  luaJIT_vmevent_callback vmevent_cb; /* User set VM event callback. */
+  void *vmevent_data;                 /* VM event callback data. */
   char LJ_ALIGN(16) lexstrings[LEXSTRINGS_LEN];
   char LJ_ALIGN(16) metastrings[METASTRINGS_LEN];
   char LJ_ALIGN(16) pinstrings[PINSTRINGS_LEN];
