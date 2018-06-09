@@ -1534,6 +1534,7 @@ static size_t gc_onestep(lua_State *L) {
     }
 #endif
     if (g->gc.finalizenum) {
+      gc_setstate(g, GCSfinalize);
       g->gc.sweeppos = g->gc.finalizenum;
       g->gc.finalizenum = 0;
     } else {
