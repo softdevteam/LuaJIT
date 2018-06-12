@@ -884,7 +884,7 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
     eventdata.spill = &ex->spill;
     eventdata.spill_size = sizeof(ex->spill);
   );
-  if ((((intptr_t)mref(G(L)->gc.grayssb, GCRef)) & GRAYSSB_MASK) == 0) {
+  if (J2G(J)->gc.ssbsize >= LJ_GC_SSB_CAPACITY) {
     lj_gc_drain_ssb(G(L));
   }
 
