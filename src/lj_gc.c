@@ -1385,7 +1385,7 @@ static int gc_sweepend(lua_State *L)
 }
 
 #define ATOMIC_SWEEP 1
-#define ATOMIC_PROPAGATE 1
+#define ATOMIC_PROPAGATE 0
 
 /* Perform both sweepstring and sweep in single atomic call instead of 
 ** incrementally to help track down GC phase bugs. 
