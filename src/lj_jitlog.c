@@ -631,6 +631,25 @@ LUA_API int jitlog_save(JITLogUserContext *usrcontext, const char *path)
   return result;
 }
 
+LUA_API int jitlog_setsink_mmap(JITLogUserContext *usrcontext, const char *path, int mwinsize)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  UserBuf ub = {0};
+
+  if (context->ub.bufhandler != membuf_doaction) {
+    return -1;
+  }
+
+  if (!ubuf_init_mmap(&ub, path, mwinsize)) {
+    return -2;
+  }
+
+  ubuf_putmem(&ub, ubufB(&context->ub), ubuflen(&context->ub));
+  ubuf_free(&context->ub);
+  memcpy(&context->ub, &ub, sizeof(ub));
+  return 1;
+}
+
 LUA_API void jitlog_savehotcounts(JITLogUserContext *usrcontext)
 {
   JITLogState *context = usr2ctx(usrcontext);
@@ -679,6 +698,21 @@ static int jlib_addmarker(lua_State *L)
   const char *label = luaL_checklstring(L, 1, &size);
   int flags = luaL_optint(L, 2, 0);
   log_stringmarker(&context->ub, flags, label);
+  return 0;
+}
+
+static int jlib_setlogsink(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+  const char *path = luaL_checkstring(L, 1);
+  int windowsz = luaL_optint(L, 2, 0);
+
+  int result = jitlog_setsink_mmap(ctx2usr(context), path, windowsz);
+  if (result == -1) {
+    luaL_error(L, "Cannot set a log sink for a non memory buffer");
+  }else if (result == -2) {
+    luaL_error(L, "Failed to open mmap for the jitlog buffer");
+  }
   return 0;
 }
 
@@ -758,6 +792,7 @@ static const luaL_Reg jitlog_lib[] = {
   {"savetostring", jlib_savetostring},
   {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
+  {"setlogsink", jlib_setlogsink},
 #if LJ_HASJIT
   {"snap_hotcounts", jlib_snap_hotcounts},
   {"cmp_hotcounts", jlib_cmp_hotcounts},
