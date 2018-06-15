@@ -2,6 +2,7 @@
 #define _LJ_JITLOG_H
 
 #include "lua.h"
+#include "lj_usrbuf.h"
 
 typedef enum JITLogFilter {
   LOGFILTER_TRACE_COMPLETED = 0x1,

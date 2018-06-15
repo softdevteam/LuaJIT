@@ -556,7 +556,7 @@ function generator:write_vlenfield(msgdef, f, vtotal, vwrite)
     tinsert(vtotal, self:buildtemplate("MSize {{sizename}} = (MSize)strlen({{name}});", tmpldata))
   end
   tinsert(vtotal, self:buildtemplate("vtotal += {{sizename}} * {{element_size}};", tmpldata))
-  tinsert(vwrite, self:buildtemplate("lj_buf_putmem(sb, {{name}}, (MSize)({{sizename}} * {{element_size}}));", tmpldata))
+  tinsert(vwrite, self:buildtemplate("ubuf_putmem(ub, {{name}}, (MSize)({{sizename}} * {{element_size}}));", tmpldata))
 end
 
 local funcdef_fixed = [[
@@ -564,10 +564,9 @@ LJ_STATIC_ASSERT(sizeof(MSG_{{name}}) == {{msgsize}});
 
 static LJ_AINLINE void log_{{name}}({{args}})
 {
-  SBuf *sb = (SBuf *)g->vmevent_data;
-  MSG_{{name}} *msg = (MSG_{{name}} *)sbufP(sb);
-{{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
-  lj_buf_more(sb, {{minbuffspace}});
+  MSG_{{name}} *msg = (MSG_{{name}} *)ubufP(ub);
+{{fields:  %s\n}}  setubufP(ub, ubufP(ub) + {{msgsize}});
+  ubuf_more(ub, {{minbuffspace}});
 }
 
 ]]
@@ -577,10 +576,9 @@ LJ_STATIC_ASSERT(sizeof(MSG_{{name}}) == {{msgsize}});
 
 static LJ_AINLINE void log_{{name}}({{args}})
 {
-  SBuf *sb = (SBuf *)g->vmevent_data;
   MSG_{{name}} *msg;
-{{vtotal:  %s\n}}  msg = (MSG_{{name}} *)lj_buf_more(sb, (MSize)(vtotal + {{minbuffspace}}));
-{{fields:  %s\n}}  setsbufP(sb, sbufP(sb) + {{msgsize}});
+{{vtotal:  %s\n}}  msg = (MSG_{{name}} *)ubuf_more(ub, (MSize)(vtotal + {{minbuffspace}}));
+{{fields:  %s\n}}  setubufP(ub, ubufP(ub) + {{msgsize}});
 {{vwrite:  %s\n}}
 }
 
@@ -616,7 +614,7 @@ function generator:write_logfunc(def)
     tinsert(vtotal, format("size_t vtotal = sizeof(MSG_%s);", def.name))
   end
   
-  local args = {"global_State *g"} 
+  local args = {"UserBuf *ub"} 
   if def.struct_args ~= "" then
     table.insert(args, def.struct_args)
   end
@@ -771,6 +769,7 @@ function generator:write_cheader(options)
 #if LJ_TARGET_LINUX || LJ_TARGET_OSX
 #include <x86intrin.h>
 #endif
+#include "lj_usrbuf.h"
 
 ]])
   for _, def in ipairs(self.msglist) do
