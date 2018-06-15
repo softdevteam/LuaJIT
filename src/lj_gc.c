@@ -1600,6 +1600,7 @@ void lj_gc_fullgc(lua_State *L)
 /* Move the GC propagation frontier forward. */
 void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
 {
+  lua_State *L = mainthread(g);
   lua_assert(!isdead(g, v) && !isdead(g, o));
   lua_assert(g->gc.state != GCSfinalize && g->gc.state != GCSpause);
   lua_assert(o->gch.gct != ~LJ_TTAB);
@@ -1621,6 +1622,7 @@ void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
 /* Specialized barrier for closed upvalue. Pass &uv->tv. */
 void LJ_FASTCALL lj_gc_barrieruv(global_State *g, TValue *tv)
 {
+  lua_State *L = mainthread(g);
   lua_assert(tvisgcv(tv));
   PERF_COUNTER(gc_barrieruv);
 /* Adjust the TValue pointer to upvalue its contained in */
