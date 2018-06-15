@@ -72,6 +72,7 @@ parser.namescans = {
 }
 
 parser.files_to_scan = {
+  "lj_gc.c",
 }
 
 parser:scan_instrumented_files()

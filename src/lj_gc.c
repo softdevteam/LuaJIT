@@ -27,6 +27,7 @@
 #include "lj_trace.h"
 #include "lj_vm.h"
 #include "lj_vmevent.h"
+#include "lj_vmperf.h"
 
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40
