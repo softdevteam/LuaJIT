@@ -1493,7 +1493,7 @@ static size_t gc_onestep(lua_State *L)
 }
 
 /* Perform a limited amount of incremental GC steps. */
-int LJ_FASTCALL lj_gc_step(lua_State *L)
+int LJ_FASTCALL lj_gc_step_internal(lua_State *L)
 {
   global_State *g = G(L);
   GCSize lim;
@@ -1526,6 +1526,14 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   return ret;
 }
 
+int LJ_FASTCALL lj_gc_step(lua_State *L)
+{
+  TIMER_START(gc_step);
+  int result = lj_gc_step_internal(L);
+  TIMER_END(gc_step);
+  return result;
+}
+
 /* Ditto, but fix the stack top first. */
 void LJ_FASTCALL lj_gc_step_fixtop(lua_State *L)
 {
@@ -1540,7 +1548,9 @@ int LJ_FASTCALL lj_gc_step_jit(global_State *g, MSize steps)
   lua_State *L = gco2th(gcref(g->cur_L));
   L->base = tvref(G(L)->jit_base);
   L->top = curr_topL(L);
-  while (steps-- > 0 && lj_gc_step(L) == 0) {}
+  TIMER_START(gc_step);
+  while (steps-- > 0 && lj_gc_step_internal(L) == 0){}
+  TIMER_END(gc_step);
   if ((G(L)->gc.state == GCSatomic || G(L)->gc.state == GCSfinalize)) {
     G(L)->gc.gcexit = 1;
     /* Return 1 to force a trace exit. */
