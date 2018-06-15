@@ -251,10 +251,35 @@ function base_actions:stringmarker(msg)
   return marker
 end
 
+function base_actions:section(msg)
+  local id = msg:get_id()
+  local isstart = msg:get_isstart()
+  local length
+  if isstart then
+    self.section_starts[id] = msg.time
+    self.section_counts[id] = (self.section_counts[id] or 0) + 1
+  else
+    local start = self.section_starts[id]
+    if start then
+      length = tonumber(msg.time - start)
+      self.section_starts[id] = false
+      self.section_time[id] = (self.section_time[id] or 0ull) + length
+    else
+      self:log_msg("section", "Section(%s): found end without a section start at %d", self.section_names[id], self.eventid)
+    end
+  end
+  return id, isstart, length
+end
+
 function base_actions:enumdef(msg)
   local name = msg:get_name()
   local names = msg:get_valuenames()
-  self.enums[name] = make_enum(names)
+  local enum = make_enum(names)
+  self.enums[name] = enum
+  if name == "sections" then
+    self.maxsection = #names
+    self.section_names = enum
+  end
   self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
   return name, names
 end
@@ -628,6 +653,44 @@ function base_actions:gcstate(msg)
   return self.gcstate, self.enums.gcstate[prevstate]
 end
 
+function base_actions:perf_counters(msg)
+  local counterdef = self.enums.counters
+  local counts_length = msg:get_counts_length()
+  local ids = msg.ids_length ~= 0 and msg:get_ids()
+  assert(counts_length <= #counterdef.names)
+  assert(msg.ids_length == 0 or msg.ids_length == counts_length)
+  
+  local counts = msg:get_counts()
+  for i=0, counts_length-1 do
+    local key
+    if ids then
+      key = counterdef[ids[i]]
+    else
+      key = counterdef[i]
+    end
+    self.counters[key] = (self.counters[key] or 0) + counts[i]
+  end
+end
+
+function base_actions:perf_timers(msg)
+  local timerdef = self.enums.timers
+  local times_length = msg:get_times_length()
+  local ids = msg.ids_length ~= 0 and msg:get_ids()
+  assert(times_length <= #timerdef.names)
+  assert(msg.ids_length == 0 or idcount == times_length)
+  
+  local times = msg:get_times()
+  for i=0, times_length-1 do
+    local key
+    if ids then
+      key = timerdef[ids[i]]
+    else
+      key = timerdef[i]
+    end
+    self.timers[key] = (self.timers[key] or 0) + times[i]
+  end
+end
+
 local logreader = {}
 
 function logreader:log(fmt, ...)
@@ -950,6 +1013,11 @@ local function makereader(mixins)
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
     enums = {},
+    counters = {},
+    timers = {},
+    section_starts = {},
+    section_counts = {},
+    section_time = {},
     verbose = false,
     logfilter = {
       --header = true,

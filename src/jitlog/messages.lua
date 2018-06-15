@@ -53,6 +53,15 @@ local msgs = {
   },
 
   {
+    name = "section",
+    "time : timestamp",
+    "id : 22",
+    "isjited : bool",
+    "isstart : bool",
+    enumlist = "section",
+  },
+
+  {
     name = "stringmarker",
     "time : timestamp",
     "flags : 16",
@@ -211,6 +220,22 @@ local msgs = {
     name = "hotcounts",
     "counts_length :  u16",
     "counts : u16[counts_length]",
+  },
+
+  {
+    name = "perf_counters",
+    "counts_length :  u16",
+    "ids_length :  u16",
+    "counts : u32[counts_length]",
+    "ids : u16[ids_length]",
+  },
+
+  {
+    name = "perf_timers",
+    "times_length :  u16",
+    "ids_length :  u16",
+    "times : u64[times_length]",
+    "ids : u16[ids_length]",
   },
 }
 

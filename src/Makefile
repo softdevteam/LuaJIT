@@ -484,7 +484,7 @@ LJLIB_O= lib_base.o lib_math.o lib_bit.o lib_string.o lib_table.o \
 	 lib_io.o lib_os.o lib_package.o lib_debug.o lib_jit.o lib_ffi.o
 LJLIB_C= $(LJLIB_O:.o=.c)
 
-LJOPT_O= lj_vmevent_printer.o lj_jitlog.o lj_usrbuf.o
+LJOPT_O= lj_vmevent_printer.o lj_jitlog.o lj_usrbuf.o lj_vmperf.o
 
 LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o lj_buf.o \
 	  lj_str.o lj_tab.o lj_func.o lj_udata.o lj_meta.o lj_debug.o \
@@ -704,6 +704,7 @@ $(HOST_O): %.o: %.c
 include Makefile.dep
 
 lj_jitlog.o: lj_jitlog.c lj_jitlog_def.h lj_jitlog_writers.h lj_bcdef.h lj_ffdef.h
+lj_vmperf.o: lj_jitlog_def.h
 
 ##############################################################################
 # Target file rules.

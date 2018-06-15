@@ -17,6 +17,7 @@
 #include "lj_jitlog_def.h"
 
 #include "lj_jitlog_writers.h"
+#include "lj_vmperf.h"
 
 
 typedef enum JITLogMode {
@@ -463,6 +464,26 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   }
 }
 
+void write_section(lua_State *L, int id, int isstart)
+{
+  SBuf *sb;
+  MSG_section *msg;
+  int jited = G(L)->vmstate > 0;
+  if (!G(L)->vmevent_data) {
+    return;
+  }
+
+  sb = (SBuf *)G(L)->vmevent_data;
+  msg = (MSG_section *)sbufP(sb);
+  msg->header = MSGTYPE_section;
+  msg->header |= (id << 8);
+  msg->header |= (jited << 30);
+  msg->header |= (isstart << 31);
+  msg->time = __rdtsc();
+  setsbufP(sb, sbufP(sb) + 12);
+  lj_buf_more(sb, 128);
+}
+
 #if LJ_TARGET_X86ORX64
 
 static int getcpumodel(char *model)
@@ -573,6 +594,9 @@ static void write_header(JITLogState *context)
   write_enum(context, "irtypes", irt_names);
   write_enum(context, "ircalls", ircall_names);
   write_enum(context, "irfields", irfield_names);
+  write_enum(context, "sections", section_names);
+  write_enum(context, "timers", timer_names);
+  write_enum(context, "counters", counter_names);
 }
 
 static int jitlog_isrunning(lua_State *L)
@@ -745,6 +769,48 @@ LUA_API void jitlog_savehotcounts(JITLogUserContext *usrcontext)
 #endif
 }
 
+#ifdef LJ_ENABLESTATS
+
+LUA_API void jitlog_saveperfcounts(JITLogUserContext *usrcontext, uint16_t *ids, int idcount)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  lua_State *L = mainthread(context->g);
+  uint32_t *counters = COUNTERS_POINTER(mainthread(context->g));
+  int numcounters = idcount != 0 ? idcount : Counter_MAX;
+
+  if (idcount != 0) {
+    counters = (uint32_t *)malloc(idcount * 4);
+    for (size_t i = 0; i < idcount; i++) {
+      counters[i] = COUNTERS_POINTER(L)[ids[i]];
+    }
+  }
+  log_perf_counters(context->g, counters, numcounters, ids, idcount);
+  if (idcount != 0) {
+    free(counters);
+  }
+}
+
+LUA_API void jitlog_saveperftimers(JITLogUserContext *usrcontext, uint16_t *ids, int idcount)
+{
+  JITLogState *context = usr2ctx(usrcontext);
+  lua_State *L = mainthread(context->g);
+  uint64_t *timers = TIMERS_POINTER(mainthread(context->g));
+  int numtimers = idcount != 0 ? idcount : Timer_MAX;
+
+  if (idcount != 0) {
+    timers = (uint64_t *)malloc(idcount * 4);
+    for (size_t i = 0; i < idcount; i++) {
+      timers[i] = TIMERS_POINTER(L)[ids[i]];
+    }
+  }
+  log_perf_timers(context->g, timers, numtimers, ids, idcount);
+  if (idcount != 0) {
+    free(timers);
+  }
+}
+
+#endif
+
 /* -- Lua module to control the JITLog ------------------------------------ */
 
 static JITLogState* jlib_getstate(lua_State *L)
@@ -871,6 +937,30 @@ static int jlib_write_hotcounts(lua_State *L)
   return 0;
 }
 
+static int jlib_write_perfcounts(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+#ifdef LJ_ENABLESTATS
+  jitlog_saveperfcounts(ctx2usr(context), NULL, 0);
+  perf_resetcounters(L);
+#else
+  luaL_error(L, "VM perf stats system disabled");
+#endif
+  return 0;
+}
+
+static int jlib_write_perftimers(lua_State *L)
+{
+  JITLogState *context = jlib_getstate(L);
+#ifdef LJ_ENABLESTATS
+  jitlog_saveperftimers(ctx2usr(context), NULL, 0);
+  perf_resettimers(L);
+#else
+  luaL_error(L, "VM perf stats system disabled");
+#endif
+  return 0;
+}
+
 #endif
 
 static const luaL_Reg jitlog_lib[] = {
@@ -883,6 +973,8 @@ static const luaL_Reg jitlog_lib[] = {
   {"getsize", jlib_getsize},
   {"addmarker", jlib_addmarker},
   {"setlogsink", jlib_setlogsink},
+  {"write_perfcounts", jlib_write_perfcounts},
+  {"write_perftimers", jlib_write_perftimers},
 #if LJ_HASJIT
   {"snap_hotcounts", jlib_snap_hotcounts},
   {"cmp_hotcounts", jlib_cmp_hotcounts},
