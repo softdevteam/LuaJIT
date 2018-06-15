@@ -536,6 +536,7 @@ local function make_msgparser(file_msgsizes, dispatch, aftermsg)
   end
 
   return function(self, buff, length, partial)
+    local start = ffi.cast("char*", buff)
     local pos = ffi.cast("char*", buff)
     local buffend = pos + length
 
@@ -566,7 +567,8 @@ local function make_msgparser(file_msgsizes, dispatch, aftermsg)
       aftermsg(self, msgtype, size, pos)
       
       self.eventid = self.eventid + 1
-      pos = pos + size 
+      pos = pos + size
+      self.bufpos = pos -start
     end
       
     return pos
