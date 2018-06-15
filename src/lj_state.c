@@ -179,6 +179,8 @@ static void close_state(lua_State *L)
   arena_destroyGG(g, GGarena);
 }
 
+void *jitlog_start(lua_State *L);
+
 #if LJ_64 && !LJ_GC64 && !(defined(LUAJIT_USE_VALGRIND) && defined(LUAJIT_USE_SYSMALLOC))
 lua_State *lj_state_newstate(lua_Alloc f, void *ud)
 #else
@@ -220,6 +222,7 @@ LUA_API lua_State *lua_newstate(lua_Alloc f, void *ud)
     close_state(L);
     return NULL;
   }
+  jitlog_start(L);
   L->status = LUA_OK;
   return L;
 }
