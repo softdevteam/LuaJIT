@@ -196,12 +196,12 @@ static void memorize_proto(JITLogState *context, GCproto *pt)
   lua_State *L = mainthread(context->g);
   TValue key;
   int i;
-  memorize_string(context, strref(pt->chunkname));
   setprotoV(L, &key, pt);
   /* Only write each proto once to the jitlog */
   if (!(context->mode & JITLogMode_AlwaysWriteGCObjs) && !memorize_gcref(L, context->protos, &key, &context->protocount)) {
     return;
   }
+  memorize_string(context, strref(pt->chunkname));
 
   uint8_t *lineinfo = mref(pt->lineinfo, uint8_t);
   uint32_t linesize = 0;
@@ -240,7 +240,9 @@ static void memorize_func(JITLogState *context, GCfunc *fn)
   }
 
   if (isluafunc(fn)) {
-    memorize_proto(context, funcproto(fn));
+    if (!(context->user.logfilter & LOGFILTER_PROTO_LOADONLY)) {
+      memorize_proto(context, funcproto(fn));
+    }
 
     int i;
     TValue *upvalues = lj_mem_newvec(L, fn->l.nupvalues, TValue);
