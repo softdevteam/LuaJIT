@@ -596,7 +596,6 @@ static GCSize gc_propagate_gray(global_State *g)
   GCSize total = 0;
   GCArena *maxarena = NULL;
   PQueue *greyqueu = &g->gc.greypq;
-  SECTION_START(propagate_gray);
 
   if (greyqueu->size == 0) {
     pqueue_init(mainthread(g), greyqueu);
@@ -634,7 +633,6 @@ static GCSize gc_propagate_gray(global_State *g)
     // printf("propagated %d objects in arena(%d), with a size of %d\n", count, arena_extrainfo(maxarena)->id, omem);
   }
   assert_greyempty(g);
-  SECTION_END(propagate_gray);
 
   return total;
 }
@@ -1501,7 +1499,6 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   GCSize lim;
   int32_t ostate = g->vmstate;
   int ret = 0;
-  SECTION_START(gc_step);
   setvmstate(g, GC);
   lim = (GCSTEPSIZE/100) * g->gc.stepmul;
   if (lim == 0)
@@ -1513,7 +1510,6 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
     if (g->gc.state == GCSpause) {
       g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
       g->vmstate = ostate;
-      SECTION_END(gc_step);
       return 1;  /* Finished a GC cycle. */
     }
   } while (sizeof(lim) == 8 ? ((int64_t)lim > 0) : ((int32_t)lim > 0));
@@ -1527,7 +1523,6 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
     g->vmstate = ostate;
     ret = 0;
   }
-  SECTION_END(gc_step);
   return ret;
 }
 
