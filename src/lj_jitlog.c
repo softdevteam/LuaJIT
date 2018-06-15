@@ -466,22 +466,12 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
 
 void write_section(lua_State *L, int id, int isstart)
 {
-  SBuf *sb;
-  MSG_section *msg;
+  JITLogState *context = (JITLogState *)G(L)->vmevent_data;
   int jited = G(L)->vmstate > 0;
-  if (!G(L)->vmevent_data) {
+  if (!context) {
     return;
   }
-
-  sb = (SBuf *)G(L)->vmevent_data;
-  msg = (MSG_section *)sbufP(sb);
-  msg->header = MSGTYPE_section;
-  msg->header |= (id << 8);
-  msg->header |= (jited << 30);
-  msg->header |= (isstart << 31);
-  msg->time = __rdtsc();
-  setsbufP(sb, sbufP(sb) + 12);
-  lj_buf_more(sb, 128);
+  log_section(&context->ub, id, jited, isstart);
 }
 
 #if LJ_TARGET_X86ORX64
