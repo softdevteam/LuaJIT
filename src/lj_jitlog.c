@@ -282,8 +282,10 @@ static void jitlog_writetrace(JITLogState *context, GCtrace *T, int abort)
   BCPos startpc = proto_bcpos(startpt, mref(T->startpc, const BCIns));
   BCPos stoppc;
   GCproto *stoppt = getcurlualoc(context, &stoppc);
-  memorize_proto(context, startpt);
-  memorize_proto(context, stoppt);
+  if (!(context->user.logfilter & LOGFILTER_PROTO_LOADONLY)) {
+    memorize_proto(context, startpt);
+    memorize_proto(context, stoppt);
+  }
   memorize_func(context, context->lastfunc);
 
   int abortreason = (abort && tvisnumber(J->L->top-1)) ? numberVint(J->L->top-1) : -1;
@@ -354,7 +356,9 @@ static void jitlog_exit(JITLogState *context, VMEventData_TExit *exitState)
 
 static void jitlog_protobl(JITLogState *context, VMEventData_ProtoBL *data)
 {
-  memorize_proto(context, data->pt);
+  if (!(context->user.logfilter & LOGFILTER_PROTO_LOADONLY)) {
+    memorize_proto(context, data->pt);
+  }
   log_protobl(context->g, data->pt, data->pc);
 }
 
