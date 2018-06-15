@@ -389,8 +389,11 @@ function base_actions:gcfunc(msg)
   }
   if msg:get_ffid() == 0 then
     local proto = self.proto_lookup[target]
+    if not proto then
+      print(format("Failed to find proto %s for func %s", target, address))
+    end
     func.proto = proto
-    self:log_msg("gcfunc", "GCFunc(%d): Lua %s, nupvalues %d", address, proto:get_location(), 0)
+    self:log_msg("gcfunc", "GCFunc(%d): Lua %s, nupvalues %d", address, proto and proto:get_location(), 0)
   else
     func.cfunc = target
     self:log_msg("gcfunc", "GCFunc(%d): %s Func 0x%d nupvalues %d", address, self.enums.fastfuncs[msg:get_ffid()], target, 0)
@@ -548,10 +551,11 @@ function base_actions:trace(msg)
     trace.abortcode = msg.abortcode
     trace.abortreason = self.enums.trace_errors[msg.abortcode]
     tinsert(self.aborts, trace)
-    self:log_msg("trace", "AbortedTrace(%d): reason %s, parentid = %d, start= %s\n stop= %s", id, trace.abortreason, msg.parentid, startpt:get_location(), stoppt:get_location())
+    self:log_msg("trace", "AbortedTrace(%d): reason %s, parentid = %d, start= %s\n stop= %s", id, trace.abortreason, msg.parentid, 
+                  startpt and startpt:get_location(), stoppt and stoppt:get_location())
   else
     tinsert(self.traces, trace)
-    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
+    self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt and startpt:get_location(), stoppt and stoppt:get_location())
   end
   setmetatable(trace, trace_mt)
   return trace
