@@ -632,9 +632,9 @@ static JITLogState *jitlog_start_safe(lua_State *L)
 static void jitlog_loadstage2(lua_State *L, JITLogState *context)
 {
   lua_assert(!context->strings && !context->protos && !context->funcs);
-  context->strings = create_pinnedtab(L, 1);
-  context->protos = create_pinnedtab(L, 1);
-  context->funcs = create_pinnedtab(L, 1);
+  context->strings = create_pinnedtab(L, 0);
+  context->protos = create_pinnedtab(L, 0);
+  context->funcs = create_pinnedtab(L, 0);
   lj_lib_prereg(L, "jitlog", luaopen_jitlog, tabref(L->env));
   context->safestarted = 0;
 }
