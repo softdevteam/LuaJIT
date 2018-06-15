@@ -415,12 +415,13 @@ void TraceGC(global_State *g, int newstate)
 
 #ifdef LJ_ENABLESTATS
   if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
+    /*
     log_markstats(perf_counter[Counter_gc_mark], perf_counter[Counter_gc_markhuge], perf_counter[Counter_gc_traverse_tab],
                   perf_counter[Counter_gc_traverse_func], perf_counter[Counter_gc_traverse_proto], perf_counter[Counter_gc_traverse_thread],
                   perf_counter[Counter_gc_traverse_trace]);
     perf_resetcounters();
+    */
   }
-  log_gcstate(norm_gcstateid(newstate), norm_gcstateid(g->gc.state), g->gc.total, g->gc.hugemem, g->strnum);
 #endif
 }
 

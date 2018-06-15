@@ -99,11 +99,9 @@ void gc_mark(global_State *g, GCobj *o, int gct)
   lua_assert(!isdead(g, o));
   lua_assert(gc_ishugeblock(o) || iswhite(g, o));
   lua_assert(gct == o->gch.gct);
-  PERF_COUNTER(gc_mark);
 
   /* Huge objects are always unconditionally sent to us to make white checks simple */
   if (LJ_UNLIKELY(gc_ishugeblock(o))) {
-    PERF_COUNTER(gc_markhuge);
     hugeblock_mark(g, o);
 
     /* No further processing */
@@ -227,7 +225,6 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
   int weak = 0;
   cTValue *mode;
   GCtab *mt = tabref(t->metatable);
-  PERF_COUNTER(gc_traverse_tab);
   if (mt)
     gc_mark_tab(g, mt);
   mode = lj_meta_fastg(g, mt, MM_mode);
@@ -255,7 +252,6 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
       if (tvisgcv(tv) && (gc_ishugeblock(gcV(tv)) || arenaobj_iswhite(gcV(tv)))) {
         if (!gc_ishugeblock(gcV(tv)) && (itype(tv) == LJ_TSTR || itype(tv) == LJ_TCDATA ||
                                          itype(tv) == LJ_TFUNC || itype(tv) == LJ_TTAB)) {
-          PERF_COUNTER(gc_mark);
           arenaobj_markgct(g, gcV(tv), ~itype(tv));
         } else {
           gc_mark(g, gcV(tv), ~itype(tv));
@@ -287,7 +283,6 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 /* Traverse a function. */
 static void gc_traverse_func(global_State *g, GCfunc *fn)
 {
-  PERF_COUNTER(gc_traverse_func);
   cleargray((GCobj *)fn);
   gc_mark_tab(g, tabref(fn->c.env));
   if (isluafunc(fn)) {
@@ -319,7 +314,6 @@ static void gc_traverse_trace(global_State *g, GCtrace *T)
   if (T->traceno == 0) {
     return;
   }
-  PERF_COUNTER(gc_traverse_trace);
   for (ref = T->nk; ref < REF_TRUE; ref++) {
     IRIns *ir = &T->ir[ref];
     if (ir->o == IR_KGC)
@@ -343,7 +337,6 @@ static void gc_traverse_trace(global_State *g, GCtrace *T)
 static void gc_traverse_proto(global_State *g, GCproto *pt)
 {
   ptrdiff_t i;
-  PERF_COUNTER(gc_traverse_proto);
   gc_mark_str(g, proto_chunkname(pt));
   for (i = -(ptrdiff_t)pt->sizekgc; i < 0; i++)  /* Mark collectable consts. */
     gc_markobj(g, proto_kgc(pt, i));
@@ -373,7 +366,6 @@ static MSize gc_traverse_frames(global_State *g, lua_State *th)
 static void gc_traverse_thread(global_State *g, lua_State *th)
 {
   TValue *o, *top = th->top;
-  PERF_COUNTER(gc_traverse_thread);
   for (o = tvref(th->stack)+1+LJ_FR2; o < top; o++)
     gc_marktv(g, o);
   if (g->gc.state == GCSatomic) {
@@ -560,7 +552,6 @@ static GCSize propagate_arenagrays(global_State *g, GCArena *arena, int limit, M
   if (mref(arena->greytop, GCCellID1) == NULL) {
     return 0;
   }
-  PERF_COUNTER(propagate_queues);
 
   for (; *mref(arena->greytop, GCCellID1) != 0;) {
     GCCellID1 *top = mref(arena->greytop, GCCellID1);
@@ -648,7 +639,6 @@ static int gc_sweepstring(global_State *g)
     GCstr *s = strref(str);
     str = s->nextgc;
     if (iswhite(g, s)) {
-      PERF_COUNTER(sweptstring);
       g->strnum--;
       *(prev ? &prev->nextgc : &g->strhash[g->gc.sweepstr]) = s->nextgc;
     } else {
