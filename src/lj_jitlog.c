@@ -784,7 +784,7 @@ LUA_API void jitlog_saveperfcounts(JITLogUserContext *usrcontext, uint16_t *ids,
       counters[i] = COUNTERS_POINTER(L)[ids[i]];
     }
   }
-  log_perf_counters(context->g, counters, numcounters, ids, idcount);
+  log_perf_counters(&context->ub, counters, numcounters, ids, idcount);
   if (idcount != 0) {
     free(counters);
   }
@@ -803,7 +803,7 @@ LUA_API void jitlog_saveperftimers(JITLogUserContext *usrcontext, uint16_t *ids,
       timers[i] = TIMERS_POINTER(L)[ids[i]];
     }
   }
-  log_perf_timers(context->g, timers, numtimers, ids, idcount);
+  log_perf_timers(&context->ub, timers, numtimers, ids, idcount);
   if (idcount != 0) {
     free(timers);
   }
