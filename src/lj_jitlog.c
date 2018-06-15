@@ -624,6 +624,8 @@ static JITLogState *jitlog_start_safe(lua_State *L)
   context->ub.L = L;
   ubuf_init_mem(&context->ub, 0);
   write_header(context);
+  context->user.logfilter = LOGFILTER_PROTO_LOADONLY;
+  context->mode = JITLogMode_AlwaysWriteGCObjs;
 
   luaJIT_vmevent_sethook(L, jitlog_callback, context);
   return context;
