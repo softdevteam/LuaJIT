@@ -909,7 +909,9 @@ GCArena* lj_gc_newarena(lua_State *L, uint32_t flags)
     pqueue_insert(L, &g->gc.greypq, arena);
   }
 #ifdef LJ_ENABLESTATS
-  log_arenacreated(id, arena,  g->gc.total, flags);
+  if (g->vmevent_data) {
+    /*  log_arenacreated((UserBuf *)g->vmevent_data, id, arena, g->gc.total, flags); */
+  }
 #endif
   GCDEBUG("Arena %d created\n", id);
   return arena;
@@ -997,7 +999,9 @@ GCArena *lj_gc_setactive_arena(lua_State *L, GCArena *arena, int travobjs)
   MSize flags = lj_gc_arenaflags(g, id);
   lua_assert(lj_gc_getarenaid(g, arena) != -1);
 #ifdef LJ_ENABLESTATS
-  log_arenaactive(id, arena_topcellid(arena), flags);
+  if (g->vmevent_data) {
+    /* log_arenaactive((UserBuf *)g->vmevent_data, id, arena_topcellid(arena), flags); */
+  }
 #endif
 
   if ((g->gc.state == GCSsweep || g->gc.state == GCSsweepstring)) {
@@ -1236,7 +1240,9 @@ static void sweep_arena(global_State *g, MSize i, MSize celltop)
   }
   empty = (count & 0x10000) == 0;
 #ifdef LJ_ENABLESTATS
-  log_arenasweep(i, empty, (uint32_t)TicksEnd(), count & 0xffff, currtop, lj_gc_arenaflags(g, i));
+  if (g->vmevent_data) {
+    /* log_arenasweep((UserBuf *)g->vmevent_data, i, empty, (uint32_t)TicksEnd(), count & 0xffff, currtop, lj_gc_arenaflags(g, i)); */
+  } 
 #endif
 
   PostSweepArena(g, arena, i, count);
