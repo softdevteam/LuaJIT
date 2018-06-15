@@ -2,6 +2,7 @@
 #define _LJ_JITLOG_H
 
 #include "lua.h"
+#include "lj_usrbuf.h"
 
 typedef enum JITLogFilter {
   LOGFILTER_TRACE_COMPLETED = 0x1,
@@ -14,6 +15,7 @@ typedef enum JITLogFilter {
   LOGFILTER_TRACE_EXITS     = 0x10,
   LOGFILTER_GC_STATE        = 0x20,
   LOGFILTER_PROTO_LOADED    = 0x40,
+  LOGFILTER_PROTO_LOADONLY  = 0x80, /* Don't try to memorize\log GCproto's except when there first loaded */
 } JITLogFilter;
 
 typedef struct JITLogUserContext {

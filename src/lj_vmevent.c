@@ -59,6 +59,9 @@ void lj_vmevent_call(lua_State *L, ptrdiff_t argbase)
 
 LUA_API int luaJIT_vmevent_sethook(lua_State *L, luaJIT_vmevent_callback cb, void *data)
 {
+#ifdef LUAJIT_DISABLE_VMEVENT
+  return 0;
+#else
   if (cb) {
     G(L)->vmevent_cb = cb;
     G(L)->vmevent_data = data;
@@ -68,11 +71,17 @@ LUA_API int luaJIT_vmevent_sethook(lua_State *L, luaJIT_vmevent_callback cb, voi
     G(L)->vmevent_data = NULL;
   }
   return 1;
+#endif
 }
 
 LUA_API luaJIT_vmevent_callback luaJIT_vmevent_gethook(lua_State *L, void **data)
 {
+#ifdef LUAJIT_DISABLE_VMEVENT
+  *data = NULL;
+  return NULL;
+#else
   *data = G(L)->vmevent_data;
   return G(L)->vmevent_cb;
+#endif
 }
 

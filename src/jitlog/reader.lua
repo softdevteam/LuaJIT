@@ -58,10 +58,52 @@ typedef struct array_u64 {
   int length;
   uint64_t array[?];
 } array_u64;
+
+/* Stack snapshot header. */
+typedef struct SnapShot {
+  uint16_t mapofs;	/* Offset into snapshot map. */
+  uint16_t ref;		/* First IR ref for this snapshot. */
+  uint8_t nslots;	/* Number of valid slots. */
+  uint8_t topslot;	/* Maximum frame extent. */
+  uint8_t nent;		/* Number of compressed entries. */
+  uint8_t count;	/* Count of taken exits for this snapshot. */
+} SnapShot;
+
+typedef struct array_SnapShot {
+  int length;
+  SnapShot array[?];
+} array_SnapShot;
+
+
+typedef union IRIns {
+  struct {
+    uint16_t op1;	/* IR operand 1. */
+    uint16_t op2;	/* IR operand 2. */
+    uint16_t ot;		/* IR opcode and type (overlaps t and o). */
+    uint16_t prev;	/* Previous ins in same chain (overlaps r and s). */
+  };
+  struct {
+    int32_t op12;	/* IR operand 1 and 2 (overlaps op1 and op2). */
+    uint8_t t;	/* IR type. */
+    uint8_t o;	/* IR opcode. */
+    uint8_t r;	/* Register allocation (overlaps prev). */
+    uint8_t s;	/* Spill slot allocation (overlaps prev). */
+  };
+  int32_t i;		/* 32 bit signed integer literal (overlaps op12). */
+  GCRef gcr;		/* GCobj constant (overlaps op12 or entire slot). */
+  MRef ptr;		/* Pointer constant (overlaps op12 or entire slot). */
+  double tv;		/* TValue constant (overlaps entire slot). */
+} IRIns;
+
+typedef struct array_IR {
+  int length;
+  IRIns array[?];
+} array_IR;
+
 ]]
 
 local function array_index(self, index)
-  assert(index >= 0 and index < self.length)
+  assert(index >= 0 and index < self.length, index)
   return self.array[index]
 end
 
@@ -115,7 +157,29 @@ ffi.metatype("array_u32", {
   }
 })
 
-local u64array =  ffi.metatype("array_u64", {
+ffi.metatype("array_u64", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * 8)
+    end,
+  }
+})
+
+ffi.metatype("array_SnapShot", {
+  __new = make_arraynew(),
+  __index = {
+    get = array_index,
+    copyfrom = function(self, src, count)
+      count = count or self.length
+      ffi.copy(self.array, src, count * ffi.sizeof("SnapShot"))
+    end,
+  }
+})
+
+ffi.metatype("array_IR", {
   __new = make_arraynew(),
   __index = {
     get = array_index,
@@ -130,6 +194,8 @@ local u8array = ffi.typeof("array_u8")
 local u16array = ffi.typeof("array_u16")
 local u32array = ffi.typeof("array_u32")
 local u64array = ffi.typeof("array_u64")
+local SnapShotarray = ffi.typeof("array_SnapShot")
+local IRarray = ffi.typeof("array_IR")
 
 local protobc = ffi.metatype("protobc", {
   __new = function(ct, count, src)
@@ -185,10 +251,35 @@ function base_actions:stringmarker(msg)
   return marker
 end
 
+function base_actions:section(msg)
+  local id = msg:get_id()
+  local isstart = msg:get_isstart()
+  local length
+  if isstart then
+    self.section_starts[id] = msg.time
+    self.section_counts[id] = (self.section_counts[id] or 0) + 1
+  else
+    local start = self.section_starts[id]
+    if start then
+      length = tonumber(msg.time - start)
+      self.section_starts[id] = false
+      self.section_time[id] = (self.section_time[id] or 0ull) + length
+    else
+      self:log_msg("section", "Section(%s): found end without a section start at %d", self.section_names[id], self.eventid)
+    end
+  end
+  return id, isstart, length
+end
+
 function base_actions:enumdef(msg)
   local name = msg:get_name()
   local names = msg:get_valuenames()
-  self.enums[name] = make_enum(names)
+  local enum = make_enum(names)
+  self.enums[name] = enum
+  if name == "sections" then
+    self.maxsection = #names
+    self.section_names = enum
+  end
   self:log_msg("enumlist", "Enum(%s): %s", name, table.concat(names,","))
   return name, names
 end
@@ -207,12 +298,27 @@ function gcproto:get_location()
   return (format("%s:%d", self.chunk, self.firstline))
 end
 
+function gcproto:get_bclocation(bcidx)
+  return (format("%s:%d", self.chunk, self:get_linenumber(bcidx)))
+end
+
 function gcproto:get_linenumber(bcidx)
   -- There is never any line info for the first bytecode so use the firstline
-  if bcidx == 0 then
+  if bcidx == 0 or self.firstline == -1 then
     return self.firstline
   end
   return self.firstline + self.lineinfo:get(bcidx-1)
+end
+
+function gcproto:get_pcline(pcaddr)
+  local diff = pcaddr-self.bcaddr
+  if diff < 0 or diff > (self.bclen * 4) then
+    return nil
+  end
+  if diff ~= 0 then
+    diff = diff/4
+  end
+  return self:get_linenumber(diff)
 end
 
 function gcproto:dumpbc()
@@ -273,10 +379,10 @@ function base_actions:gcproto(msg)
   if bclen == 0 or msg.lineinfosize == 0 then
     -- We won't have any line info for internal functions or if the debug info is stripped
     lineinfo = nolineinfo
-  elseif proto.numline < 255 then
+  elseif proto.numline < 256 then
     lisize = 1
     lineinfo = u8array(bclen)
-  elseif proto.numline < 0xffff then
+  elseif proto.numline < 65536 then
     lisize = 2
     lineinfo = u16array(bclen)
   else
@@ -331,6 +437,112 @@ function base_actions:protoloaded(msg)
   return address, proto
 end
 
+local gctrace = {}
+
+function gctrace:get_startlocation()
+  return (self.startpt:get_bclocation(self.startpc))
+end
+
+function gctrace:get_stoplocation()
+  return (self.stoppt:get_bclocation(self.stoppc))
+end
+
+function gctrace:get_snappc(snapidx)
+  local snap = self.snapshots:get(snapidx)
+  local ofs = snap.mapofs + snap.nent
+  return tonumber(self.snapmap:get(ofs))
+end
+
+local REF_BIAS = 0x8000
+
+function gctrace:dumpIR(start)
+  start = start or 0
+  
+  local irstart = REF_BIAS-self.nk
+  local count = self.nins-REF_BIAS
+  local irname = self.owner.enums.ir
+  local snaplimit = self.snapshots:get(0).ref-REF_BIAS
+  local snapi = 0
+  
+  for i=start, count-2 do
+    local ins = self.ir:get(irstart+i)
+    local op = irname[ins.o]
+    local op1, op2 = ins.op1, ins.op2
+    
+    if i >= snaplimit then
+      local pc = self:get_snappc(snapi)
+      local pt, line = self.owner:pc2proto(pc)
+      print(format(" ------------ Snap(%d): %s: %d ----------------------", snapi, pt and pt.chunk or "?", line or -1))
+      
+      snapi = snapi + 1
+      if snapi == self.nsnap then
+        snaplimit = 0xffff
+      else
+        snaplimit = self.snapshots:get(snapi).ref-REF_BIAS
+      end
+    end
+    
+    if op == "FLOAD" then
+      op2 = self.owner.enums.irfields[op2]
+    elseif op == "HREF" or op == "HREFK" or op == "NEWREF" then
+      op2 = self:get_irconstant(op2)
+    else
+      if op2 > self.nk and op2 < self.nins then
+        op2 = op2-REF_BIAS
+      end
+    end
+    
+    if op1 > self.nk and op1 < self.nins then
+        op1 = op1-REF_BIAS
+    end
+    -- TEMP reduce noise
+    if op == "UREFC" then
+      op2 = ins.op2
+    end
+    
+    print(i..": "..op, op1, op2)
+  end
+end
+
+function gctrace:get_consttab()
+  local count = REF_BIAS-self.nk
+  local irname = self.owner.enums.ir
+  local t = {}
+  
+  for i=0, (count-1) do
+    local ins = self.ir:get(count - i)
+    local op = ins.o
+    local op1, op2 = ins.op1, ins.op2
+
+    if op2 > self.nk and op2 < self.nins then
+      op2 = op2-REF_BIAS
+    end
+
+    if op1 > self.nk and op1 < self.nins then
+        op1 = op1-REF_BIAS
+    end
+    t[i+1] =  {irname[op], op1, op2}
+  end
+  return t
+end
+
+function gctrace:get_irconstant(irref)
+  local index = -(self.nk - irref)
+  local ins = self.ir:get(index)
+  local o = self.owner.enums.ir[ins.o]
+  local types = self.owner.enums.irtypes
+  
+  if o == "KSLOT" or o == "NEWREF" then
+    local gcstr = self.ir:get(-(self.nk - ins.op1)).gcr
+    return self.owner.strings[gcstr]
+  elseif o == "KGC" and ins.t == types.STR then
+    local gcstr = ins.gcr
+    return self.owner.strings[gcstr]
+  end
+end
+
+local trace_mt = {__index = gctrace}
+
 function base_actions:trace(msg)
   local id = msg:get_id()
   local aborted = msg:get_aborted()
@@ -348,16 +560,25 @@ function base_actions:trace(msg)
     stoppc = msg.stoppc,
     link = msg.link,
     stopfunc = self.func_lookup[addrtonum(msg.stopfunc)],
-    stitched = msg:get_stitched()
+    stitched = msg:get_stitched(),
+    nsnap = msg.nsnap,
+    nins = msg.nins,
+    nk = msg.nk,
   }
+  trace.snapshots = SnapShotarray(msg.nsnap, msg:get_snapshots())
+  trace.snapmap = u32array(msg.nsnapmap, msg:get_snapmap())
+  trace.ir = IRarray(msg.irlen, msg:get_ir())
+  
   if aborted then
     trace.abortcode = msg.abortcode
+    trace.abortreason = self.enums.trace_errors[msg.abortcode]
     tinsert(self.aborts, trace)
-    self:log_msg("trace", "AbortedTrace(%d): reason %d, parentid = %d, start= %s\n stop= %s", id, msg.abortcode, msg.parentid, startpt:get_location(), stoppt:get_location())
+    self:log_msg("trace", "AbortedTrace(%d): reason %s, parentid = %d, start= %s\n stop= %s", id, trace.abortreason, msg.parentid, startpt:get_location(), stoppt:get_location())
   else
     tinsert(self.traces, trace)
     self:log_msg("trace", "Trace(%d): parentid = %d, start= %s\n stop= %s", id, msg.parentid, startpt:get_location(), stoppt:get_location())
   end
+  setmetatable(trace, trace_mt)
   return trace
 end
 
@@ -367,7 +588,7 @@ function base_actions:traceexit(msg)
   local gcexit = msg:get_isgcexit()
   self.exits = self.exits + 1
   if gcexit then
-    assert(self.gcstate == "atomic" or self.gcstate == "finalize")
+    --assert(self.gcstate == "atomic" or self.gcstate == "finalize")
     self.gcexits = self.gcexits + 1
     self:log_msg("traceexit", "TraceExit(%d): %d GC Triggered", id, exit)
   else
@@ -396,20 +617,10 @@ function base_actions:protobl(msg)
   return blacklist
 end
 
-local flush_reason =  {
-  [0] = "other",
-  "user_requested",
-  "max_mcode",
-  "max_trace",
-  "profiletoggle",
-  "set_builtinmt",
-  "set_immutableuv",
-}
-
 function base_actions:alltraceflush(msg)
   local reason = msg:get_reason()
   local flush = {
-    reason = flush_reason[reason],
+    reason = self.enums.flushreason[reason],
     eventid = self.eventid,
     time = msg.time,
     maxmcode = msg.mcodelimit,
@@ -420,21 +631,12 @@ function base_actions:alltraceflush(msg)
   return flush
 end
 
-local gcstates  = {
-  [0] = "pause", 
-  "propagate", 
-  "atomic",
-  "sweepstring", 
-  "sweep", 
-  "finalize",
-}
-
 function base_actions:gcstate(msg)
   local newstate = msg:get_state()
   local prevstate = msg:get_prevstate()
   local oldstate = self.gcstateid
   self.gcstateid = newstate
-  self.gcstate = gcstates[newstate]
+  self.gcstate = self.enums.gcstate[newstate]
   self.gcstatecount = self.gcstatecount + 1
   
   if oldstate ~= newstate then
@@ -442,13 +644,51 @@ function base_actions:gcstate(msg)
     if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
       self.gccount = self.gccount + 1
     end
-    self:log_msg("gcstate", "GCState(%s): changed from %s", newstate, oldstate)
+    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, self.enums.gcstate[oldstate])
   end
   
   self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
   self.peakstrnum = math.max(self.peakstrnum or 0, msg.strnum)
   self:log_msg("gcstate", "GCStateStats: MemTotal = %dMB, StrCount = %d", msg.totalmem/(1024*1024), msg.strnum)
-  return self.gcstate, gcstates[prevstate]
+  return self.gcstate, self.enums.gcstate[prevstate]
+end
+
+function base_actions:perf_counters(msg)
+  local counterdef = self.enums.counters
+  local counts_length = msg:get_counts_length()
+  local ids = msg.ids_length ~= 0 and msg:get_ids()
+  assert(counts_length <= #counterdef.names)
+  assert(msg.ids_length == 0 or msg.ids_length == counts_length)
+  
+  local counts = msg:get_counts()
+  for i=0, counts_length-1 do
+    local key
+    if ids then
+      key = counterdef[ids[i]]
+    else
+      key = counterdef[i]
+    end
+    self.counters[key] = (self.counters[key] or 0) + counts[i]
+  end
+end
+
+function base_actions:perf_timers(msg)
+  local timerdef = self.enums.timers
+  local times_length = msg:get_times_length()
+  local ids = msg.ids_length ~= 0 and msg:get_ids()
+  assert(times_length <= #timerdef.names)
+  assert(msg.ids_length == 0 or idcount == times_length)
+  
+  local times = msg:get_times()
+  for i=0, times_length-1 do
+    local key
+    if ids then
+      key = timerdef[ids[i]]
+    else
+      key = timerdef[i]
+    end
+    self.timers[key] = (self.timers[key] or 0) + times[i]
+  end
 end
 
 local logreader = {}
@@ -492,6 +732,12 @@ function logreader:readheader(buff, buffsize, info)
   info.cpumodel = header:get_cpumodel()
   info.starttime = header.starttime
   self:log_msg("header", "LogHeader: Version %d, OS %s, CPU %s", info.version, info.os, info.cpumodel)
+  
+  local tscfreq = string.match(info.cpumodel:lower(), "@ (.+)ghz$")
+  
+  if tscfreq ~= nil then
+    info.tscfreq = tonumber(tscfreq)*1000000000
+  end
 
   local file_msgnames = header:get_msgnames()
   info.msgnames = file_msgnames
@@ -536,6 +782,7 @@ local function make_msgparser(file_msgsizes, dispatch, aftermsg)
   end
 
   return function(self, buff, length, partial)
+    local start = ffi.cast("char*", buff)
     local pos = ffi.cast("char*", buff)
     local buffend = pos + length
 
@@ -566,7 +813,8 @@ local function make_msgparser(file_msgsizes, dispatch, aftermsg)
       aftermsg(self, msgtype, size, pos)
       
       self.eventid = self.eventid + 1
-      pos = pos + size 
+      pos = pos + size
+      self.bufpos = pos -start
     end
       
     return pos
@@ -597,9 +845,9 @@ local function make_msghandler(msgname, base, funcs)
     return function(self, buff, limit)
       local msg = ffi.cast(msgname, buff)
       msg:check(limit)
-      local ret1, ret2 = base(msg, limit)
+      local ret1, ret2, ret3, ret4, ret5 = base(self, msg, limit)
       for _, f in ipairs(funcs) do
-        f(self, msg, ret1, ret2)
+        f(self, msg, ret1, ret2, ret3, ret4, ret5)
       end
     end
   end
@@ -607,6 +855,7 @@ end
 
 function logreader:processheader(header)
   self.starttime = header.starttime
+  self.tscfreq = header.tscfreq
 
   -- Make the msgtype enum for this file
   local msgtype = make_enum(header.msgnames)
@@ -674,6 +923,16 @@ function logreader:parse_buffer(buff, length)
 
   self:parsemsgs(buff, length - self.header.size)
   return true
+end
+
+function logreader:pc2proto(pc)
+  for i, pt in ipairs(self.protos) do
+    local line = pt:get_pcline(pc)
+    if line then
+      return pt, line
+    end
+  end
+  return nil, nil
 end
 
 local mt = {__index = logreader}
@@ -754,6 +1013,11 @@ local function makereader(mixins)
     gccount = 0, -- number GC full cycles that have been seen in the log
     gcstatecount = 0, -- number times the gcstate changed
     enums = {},
+    counters = {},
+    timers = {},
+    section_starts = {},
+    section_counts = {},
+    section_time = {},
     verbose = false,
     logfilter = {
       --header = true,

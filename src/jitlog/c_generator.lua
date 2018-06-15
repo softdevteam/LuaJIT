@@ -7,9 +7,8 @@ local generator = {
 generator.templates = {
   comment_line = "/* %s */",
   namelist = [[
-static const char *{{name}}[{{count}}+1] = {
-{{list:  "%s",\n}}
-  NULL,
+const char *{{name}}[{{count}}+1] = {
+{{list:  "%s",\n}}  NULL,
 };
 
 ]],
@@ -21,14 +20,14 @@ enum {{name}}{
 ]],
   enumline = "%s,\n",
   msgsize_dispatch = [[
-static const uint8_t msgsize_dispatch[255] = {
+const uint8_t msgsize_dispatch[255] = {
 {{list}}  255,/* Mark the unused message ids invalid */
 };
 
 ]],
 
     msgsizes = [[
-static const int32_t msgsizes[{{count}}] = {
+const int32_t msgsizes[{{count}}] = {
 {{list}}
 };
 
@@ -102,8 +101,7 @@ end
 
 function generator:writefile(options)
   self:write_headerguard("timerdef")
-  self:write([[#include <stdio.h>
-
+  self:write([[
 #ifdef _MSC_VER
   #define LJ_PACKED
   #pragma pack(push, 1)
@@ -114,11 +112,7 @@ function generator:writefile(options)
 ]])
 
   self:write_enum("MSGTYPES", self.sorted_msgnames, "MSGTYPE")
-  self:write_namelist("msgnames", self.sorted_msgnames)
-  self:write_msgsizes()
-  self:write_msgsizes(true)
-
-  self:write_msgdefs()
+  self:write_msgdefs("structdef")
   
   self:write([[
 #ifdef _MSC_VER

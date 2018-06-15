@@ -35,6 +35,7 @@
 
 #include <mmintrin.h>
 #include <xmmintrin.h>
+#include "lj_vmperf.h"
 
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40

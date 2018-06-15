@@ -51,6 +51,32 @@ local apigen = require"jitlog.generator"
 local parser = apigen.create_parser()
 parser:parse_msglist(msgdef)
 
+parser.namescans = {
+  timer = {
+    patten = "TIMER_START%(([^%,)]+)",
+    enumname = "TimerId",
+    enumprefix = "Timer",
+  },
+
+  counter = {
+    patten = "PERF_COUNTER%(([^%,)]+)",
+    enumname = "CounterId",
+    enumprefix = "Counter",
+  },
+
+  section = {
+    patten = "SECTION_START%(([^%,)]+)",
+    enumname = "SectionId",
+    enumprefix = "Section",
+  },
+}
+
+parser.files_to_scan = {
+  "lj_gc.c",
+}
+
+parser:scan_instrumented_files()
+
 local data = parser:complete()
 apigen.write_c(data)
 apigen.writelang("lua", data)

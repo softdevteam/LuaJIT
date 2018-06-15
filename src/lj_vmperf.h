@@ -1,7 +1,7 @@
 #ifndef _LJ_VMPERF_H
 #define _LJ_VMPERF_H
 
-//#define LJ_ENABLESTATS
+#define LJ_ENABLESTATS
 #ifdef LJ_ENABLESTATS
 
 #include "lj_buf.h"
