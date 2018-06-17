@@ -631,12 +631,28 @@ function base_actions:alltraceflush(msg)
   return flush
 end
 
+local gcnames = {
+  GCSpause = 0,
+  --* Only GCSpropagate and GCSatomic can have LSB set see GCSneedsbarrier */
+  GCSpropagate   = 1,
+  GCSatomic      = 3,
+  GCSsweepstring = 4,
+  GCSsweep       = 6,
+  GCSfinalize    = 16,
+}
+
+local gcstate_enum = table.new(22, 0)
+
+for k, n in pairs(gcnames) do
+  gcstate_enum[n] = k
+end
+
 function base_actions:gcstate(msg)
   local newstate = msg:get_state()
   local prevstate = msg:get_prevstate()
   local oldstate = self.gcstateid
   self.gcstateid = newstate
-  self.gcstate = self.enums.gcstate[newstate]
+  self.gcstate = gcstate_enum[newstate]
   self.gcstatecount = self.gcstatecount + 1
   
   if oldstate ~= newstate then
@@ -644,13 +660,13 @@ function base_actions:gcstate(msg)
     if oldstate == nil or newstate == 1 or (oldstate > newstate and newstate > 0)  then
       self.gccount = self.gccount + 1
     end
-    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, self.enums.gcstate[oldstate])
+    self:log_msg("gcstate", "GCState(%s): changed from %s", self.gcstate, gcstate_enum[oldstate])
   end
   
   self.peakmem = math.max(self.peakmem or 0, msg.totalmem)
   self.peakstrnum = math.max(self.peakstrnum or 0, msg.strnum)
   self:log_msg("gcstate", "GCStateStats: MemTotal = %dMB, StrCount = %d", msg.totalmem/(1024*1024), msg.strnum)
-  return self.gcstate, self.enums.gcstate[prevstate]
+  return self.gcstate, gcstate_enum[prevstate]
 end
 
 function base_actions:perf_counters(msg)
