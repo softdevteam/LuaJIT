@@ -381,7 +381,7 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   VMEvent2 event = (VMEvent2)eventid;
   JITLogState *context = contextptr;
 
-  if (context->safestarted && event != VMEVENT_DETACH && event != VMEVENT_STATE_CLOSING) {
+  if (context->safestarted == 1 && event != VMEVENT_DETACH && event != VMEVENT_STATE_CLOSING && event !=  VMEVENT_GC_STATECHANGE) {
     jitlog_loadstage2(L, context);
     context->safestarted = 0;
   }
@@ -575,9 +575,15 @@ static JITLogState *jitlog_start_safe(lua_State *L)
 static void jitlog_loadstage2(lua_State *L, JITLogState *context)
 {
   lua_assert(!context->strings && !context->protos && !context->funcs);
+  /* Flag that were inside stage 2 init since registering our Lua lib may  
+  *  trigger a VM event from the GC that would cause us to run this function
+     more than once.
+  */
+  context->safestarted = 2;
   context->strings = create_pinnedtab(L);
   context->protos = create_pinnedtab(L);
   context->funcs = create_pinnedtab(L);
+  /* Beware this may trigger re-entry in to the jitlog from a gc */
   lj_lib_prereg(L, "jitlog", luaopen_jitlog, tabref(L->env));
   context->safestarted = 0;
 }
