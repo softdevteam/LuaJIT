@@ -22,7 +22,9 @@
 LJ_AINLINE uint64_t start_getticks()
 {
   uint64_t t;
-#if LJ_TARGET_X64 && defined(__GNUC__)
+#if 1
+  t = __rdtsc();
+#elif LJ_TARGET_X64 && defined(__GNUC__)
   asm volatile(
     "lfence\n\t"
     "rdtsc\n\t"
@@ -51,7 +53,9 @@ LJ_AINLINE uint64_t start_getticks()
 LJ_AINLINE uint64_t stop_getticks()
 {
   uint64_t t;
-#if LJ_TARGET_X64 && defined(__GNUC__)
+#if 1
+  t = __rdtsc();
+#elif  LJ_TARGET_X64 && defined(__GNUC__)
   // Use inline asm because __rdtscp generates code to store TSC_AUX (ecx).
   asm volatile(
     "rdtscp\n\t"
