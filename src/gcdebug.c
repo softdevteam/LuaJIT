@@ -572,6 +572,7 @@ typedef struct IdEntry{
   int type;
   char state;
   uint16_t flags;
+  GCobj *ptr;
 } IdEntry;
 
 static IdEntry cell_watches[] = {
@@ -613,8 +614,9 @@ void do_cellwatch(global_State *g)
     if (state != cell_watches[i].state) {
       GCobj *o = (GCobj *)arena_cell(arena, cellid);
       if (cell_watches[i].state == 0) {
-        printf("CELLWATCH(%d, %d) Allocated, as %s, gct %d\n", arenaid, cellid, 
-              statenames[state], o->gch.gct);
+        printf("CELLWATCH(%d, %d) Allocated, as %s, gct %d address %p\n", arenaid, cellid, 
+              statenames[state], o->gch.gct, o);
+        cell_watches[i].ptr = o;
       } else {
           printf("CELLWATCH(%d, %d) %s, gct %d \n", arenaid, cellid, 
                  statenames[state], o->gch.gct);
