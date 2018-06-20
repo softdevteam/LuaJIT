@@ -417,7 +417,7 @@ static void jitlog_callback(void *contextptr, lua_State *L, int eventid, void *e
   VMEvent2 event = (VMEvent2)eventid;
   JITLogState *context = contextptr;
 
-  if (context->safestarted == 1 && event != VMEVENT_DETACH && event != VMEVENT_STATE_CLOSING) {
+  if (context->safestarted == 1 && event != VMEVENT_DETACH && event != VMEVENT_STATE_CLOSING && event !=  VMEVENT_GC_STATECHANGE) {
     jitlog_loadstage2(L, context);
     context->safestarted = 0;
   }
