@@ -580,6 +580,21 @@ static inline int idlist_remove(CellIdChunk *chunk, MSize idx, int updatemark)
   return idlist_count(chunk) == 0;
 }
 
+static inline CellIdChunk *idlist_findspace(CellIdChunk *chunk, int *chunki)
+{
+  MSize i = idlist_count(chunk);
+
+  do {
+    if (idlist_count(chunk) != idlist_maxcells) {
+      return chunk;
+    }
+    chunk = idlist_next(chunk);
+    chunki[0]++;
+  } while (chunk);
+
+  return NULL;
+}
+
 #define idlist_freechunk(g, chunk) lj_mem_free(g, chunk, sizeof(CellIdChunk))
 
 #endif
