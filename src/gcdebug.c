@@ -331,9 +331,11 @@ void check_arenamemused(global_State *g)
 
     if (!(flags & ArenaFlag_Empty)) {
       ArenaFreeList *freelist = arena_freelist(arena);
+      MSize freetotal = 0;
       for (size_t j = 0; j < freelist->top; j++) {
         GCCellID start = freelist->oversized[j] & 0xffff;
         GCCellID end = start + (freelist->oversized[j] >> 16);
+        freetotal += end - start;
         lua_assert(!(start >= arena->celltopid && start <= arena->celltopmax));
         lua_assert(!(end >= arena->celltopid && end <= arena->celltopmax));
       }

@@ -1646,9 +1646,8 @@ static void gc_finish(lua_State *L)
   if (emptycount && (g->gc.arenastop - emptycount) > 6) {
     for (MSize i = 0; i < g->gc.arenastop; ) {
       MSize flags = lj_gc_arenaflags(g, i) & (ArenaFlag_Empty | ArenaFlag_Explicit);
-      if (flags == ArenaFlag_Empty) {
-        //lj_gc_freearena(g, lj_gc_arenaref(g, i));
-        i++;
+      if (flags == ArenaFlag_Empty && 0) {
+        lj_gc_freearena(g, lj_gc_arenaref(g, i));
       } else {
         i++;
       }
