@@ -280,7 +280,7 @@ static LJ_AINLINE int arena_cellisallocated(GCArena *arena, GCCellID cell)
   return arena->block[arena_blockidx(cell)] & arena_blockbit(cell);
 }
 
-#define arena_freespace(arena) (((arena)->celltopmax - arena_topcellid(arena)) * CellSize)
+#define arena_bumpleft(arena) ((arena)->celltopmax - (arena)->celltopid)
 
 static GCArena *ptr2arena(void* ptr);
 

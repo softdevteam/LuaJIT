@@ -2086,6 +2086,30 @@ int lj_mem_tryreclaim(lua_State *L)
   return 0;
 }
 
+/* Find the largest free range to use as the new bump allocation space */
+static int find_newbump(GCArena *arena)
+{
+  ArenaFreeList *freelist = arena_freelist(arena);
+  uint32_t largest = 0, rangesz;
+  int index = -1;
+  for (MSize i = 0; i < freelist->top; i++) {
+    if (freelist->oversized[i] > largest) {
+      largest = freelist->oversized[i];
+      index = i;
+    }
+  }
+  if (index == -1) {
+    return 0;
+  }
+  rangesz = largest >> 16;
+  freelist->top--;
+  freelist->oversized[index] = freelist->oversized[freelist->top];
+  arena->celltopid = largest &  0xffff;
+  arena->celltopandmax = arena->celltopid + rangesz;
+  return rangesz;
+
+}
+
 GCobj *findarenaspace(lua_State *L, GCSize osize, int flags)
 {
   global_State *g = G(L);
@@ -2093,22 +2117,15 @@ GCobj *findarenaspace(lua_State *L, GCSize osize, int flags)
   MSize cellnum = arena_roundcells(osize);
 
   if (!arena_canbump(curarena, cellnum)) {
+    uint32_t left = arena_bumpleft(curarena);
+    if (left > 64) {
+
+    }
     ArenaFreeList *freelist = arena_freelist(curarena);
     if (freelist->top) {
-      uint32_t largest = 0;
-      int index = -1;
-      for (MSize i = 0; i < freelist->top; i++) {
-        if (freelist->oversized[i] > largest) {
-          largest = freelist->oversized[i];
-          index = i;
-        }
-      }
-      if (index != -1) {
-        uint32_t rangesz = largest >> 16;
-        freelist->top--;
-        freelist->oversized[index] = freelist->oversized[freelist->top];
-        curarena->celltopid = largest &  0xffff;
-        curarena->celltopandmax = arena->celltopid + rangesz;
+      uint32_t newbump = find_newbump(curarena);
+
+      if (newbump) {
         return (GCobj *)arena_alloc(arena, osize);
       }
     } else {
