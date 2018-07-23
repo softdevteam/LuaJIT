@@ -9,6 +9,43 @@ if not pcall(require, "jit.opt") then
   return
 end
 
+local fhot = 56*2
+local lhot = 56
+local func_penalty = 36*2
+local loop_penalty = 36
+local maxattemps_func = 4
+local maxattemps_loop = 8
+
+local function getmaxcount(attempts, penalty)
+  local count = penalty + 16
+  for i = 1, attempts-2 do
+    count = (count*2) + 16
+    if count > 0xffff then
+      error("Attempt count of "..count.." for attempt "..i.." is larger than the max value of uint16_t")
+    end
+  end
+  return count
+end
+
+local countmax_func = getmaxcount(maxattemps_func, func_penalty)
+local countmax_loop = getmaxcount(maxattemps_loop, loop_penalty)
+print("penaltymaxfunc="..countmax_func, "penaltymaxloop="..countmax_loop)
+
+jit.opt.start("penaltymaxfunc="..countmax_func, "penaltymaxloop="..countmax_loop)
+
+local function calln(f, n)
+  for i=1, n do
+    f()
+  end
+end
+jit.off(calln)
+
+local countid_calls = -1
+local countid_loops = -2 -- total number of times a loop
+local countid_func = 0
+local countid_loop1 = 1 -- The value of first LOOPHC bytecode in the function
+local countid_loop2 = 2
+
 local function parselog(log, verbose)
   local result = readerlib.makereader()
   if verbose then
@@ -19,25 +56,6 @@ local function parselog(log, verbose)
 end
 
 local tests = {}
-
-local fhot = 56*2
-local lhot = 56
-local func_penalty = 36*2
-local loop_penalty = 36
-
-local countid_calls = -1
-local countid_loops = -2 -- total number of times a loop
-local countid_func = 0
-local countid_loop1 = 1 -- The value of first LOOPHC bytecode in the function
-local countid_loop2 = 2
-
-local function calln(f, n)
-  for i=1, n do
-    f()
-  end
-end
-
-jit.off(calln)
 
 function tests.func_hotcounters()
   local function f1() return 1 end
@@ -248,7 +266,7 @@ function tests.loop_blacklist()
   assert(get_hotcount(f1, countid_loop1) == loop_penalty)
 
   local prev = get_hotcount(f1, countid_loop1) 
-  for i=1, 9 do
+  for i=1, maxattemps_loop-2 do
     local count = get_hotcount(f1, countid_loop1)
     prev = count
     f1(count)
@@ -256,7 +274,7 @@ function tests.loop_blacklist()
     -- Trigger another trace abort
     f1(1)
     local newcount = get_hotcount(f1, countid_loop1)
-    assert(newcount < 25000)
+    assert(newcount < countmax_loop)
     -- New starting count should be double the last + random(16)
     assert(newcount >= prev*2)
     assert(newcount <= (prev*2) + 16)
@@ -268,13 +286,13 @@ function tests.loop_blacklist()
   f1(1)
   -- Last abort should blacklist the function the count will be reset to its default starting value
   assert(get_hotcount(f1, countid_loop1) == lhot)
-  
+
   local result = parselog(jitlog.savetostring())
-  assert(#result.aborts == 11)
+  assert(#result.aborts == maxattemps_loop, #result.aborts)
   assert(#result.proto_blacklist == 1)
   assert(result.proto_blacklist[1].bcindex ~= 0)
-  assert(result.proto_blacklist[1].eventid == result.aborts[11].eventid-1)
-  assert(result.proto_blacklist[1].proto == result.aborts[11].startpt)
+  assert(result.proto_blacklist[1].eventid == result.aborts[maxattemps_loop].eventid-1)
+  assert(result.proto_blacklist[1].proto == result.aborts[maxattemps_loop].startpt)
 end
 
 function tests.func_blacklist()
@@ -296,7 +314,7 @@ function tests.func_blacklist()
   assert(get_hotcount(f1, countid_func) == func_penalty)
 
   local prev = get_hotcount(f1, countid_func) 
-  for i=1, 9 do
+  for i=1, maxattemps_func-2 do
     local count = get_hotcount(f1, countid_func)
     prev = count
     calln(f1, count)
@@ -316,13 +334,13 @@ function tests.func_blacklist()
   f1(3)
   -- Last abort should blacklist the function the count will be reset to its default starting value
   assert(get_hotcount(f1, countid_func) == fhot)
-  
+
   local result = parselog(jitlog.savetostring())
-  assert(#result.aborts == 11)
+  assert(#result.aborts == maxattemps_func, #result.aborts)
   assert(#result.proto_blacklist == 1)
   assert(result.proto_blacklist[1].bcindex == 0)
-  assert(result.proto_blacklist[1].eventid == result.aborts[11].eventid-1)
-  assert(result.proto_blacklist[1].proto == result.aborts[11].startpt)
+  assert(result.proto_blacklist[1].eventid == result.aborts[maxattemps_func].eventid-1)
+  assert(result.proto_blacklist[1].proto == result.aborts[maxattemps_func].startpt)
 end
 
 local failed = false
