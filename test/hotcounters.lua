@@ -97,7 +97,7 @@ function tests.func_hotcounters()
   f1()
   assert(tstarts == 0, tstarts)
 
-  calln(f1, fhot-1)
+  calln(f1, fhot-2)
   assert(tstarts == 0, tstarts)
 
   -- Counter should be zero so this call triggers a trace
@@ -116,7 +116,7 @@ function tests.loop_hotcounters()
     for i=1,n do a = a + 1 end
     return a
   end
-  
+
   f1(1)
   assert(tstarts == 0, tstarts)
   
@@ -181,7 +181,7 @@ function tests.func_backoff()
     end
   end
   
-  calln(f1, fhot)
+  calln(f1, fhot-1)
   assert(tstarts == 0, tstarts)
 
   -- Trigger first trace attempt that aborts hitting a inner loop
@@ -291,7 +291,7 @@ function tests.func_blacklist()
     end
   end
   
-  calln(f1, fhot)
+  calln(f1, fhot-1)
   assert(tstarts == 0)
 
   -- Trigger first abort

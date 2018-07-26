@@ -1576,7 +1576,7 @@ static GCproto *fs_finish(LexState *ls, BCLine line)
   pt->framesize = fs->framesize;
   setgcref(pt->chunkname, obj2gco(ls->chunkname));
 #if LJ_HASJIT
-  pt->hotcount = L2J(ls->L)->param[JIT_P_hotfunc];
+  pt->hotcount = L2J(ls->L)->param[JIT_P_hotfunc] - 1;
 #endif
 
   /* Close potentially uninitialized gap between bc and kgc. */

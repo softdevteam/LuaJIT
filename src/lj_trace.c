@@ -758,7 +758,7 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, BCIns *pc)
   if (bc_op(pc[-1]) >= BC_FUNCF && bc_op(pc[-1]) <= BC_JFUNCV) {
     GCproto *pt = (GCproto *)(((char *)(pc-1)) - sizeof(GCproto));
     lua_assert(pt->hotcount == 0xffff);
-    pt->hotcount = J->param[JIT_P_hotfunc];
+    pt->hotcount = J->param[JIT_P_hotfunc] - 1;
   } else {
     BCIns *loop = pc-1;
     lua_assert(hotcount_loop_get(loop) == 0xffff);
