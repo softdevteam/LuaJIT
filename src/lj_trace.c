@@ -762,7 +762,7 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, BCIns *pc)
   } else {
     BCIns *loop = pc-1;
     lua_assert(hotcount_loop_get(loop) == 0xffff);
-    hotcount_loop_set(loop, J->param[JIT_P_hotloop]);
+    hotcount_loop_set(loop, J->param[JIT_P_hotloop] - 1);
   }
   
   /* Only start a new trace if not recording or inside __gc call or vmevent. */

@@ -125,7 +125,7 @@ function tests.loop_hotcounters()
   assert(tstarts == 0, tstarts)
 
   -- The loop hot counter should be zero after this call
-  f1(lhot-1)
+  f1(lhot-2)
   assert(tstarts == 0, tstarts)
   
   f1(3)
@@ -149,14 +149,14 @@ function tests.multiloop_hotcounters()
   assert(tstarts == 0, tstarts)
 
   -- Fist loop hot counter should be zero after this call
-  f1(lhot-1, -1)
+  f1(lhot-2, -1)
   assert(tstarts == 0, tstarts)
 
   f1(3, 2)
   assert(tstarts == 1 and tstops == 1, tstarts)
   
   -- Second loop hot counter should be zero after this call
-  f1(-1, lhot-4)
+  f1(-1, lhot-5)
   assert(tstarts == 1 and tstops == 1, tstarts)
 
   -- Jit the second loop
@@ -210,7 +210,7 @@ function tests.loop_backoff()
     return a
   end 
 
-  f1(lhot)
+  f1(lhot-1)
   assert(tstarts == 0, tstarts)
   -- Trigger first trace attempt that aborts
   f1(3, true)
@@ -243,7 +243,7 @@ function tests.loop_blacklist()
     return a
   end
 
-  f1(lhot)
+  f1(lhot-1)
   assert(tstarts == 0)
 
   f1(1, true)
