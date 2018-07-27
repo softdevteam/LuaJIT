@@ -71,11 +71,11 @@ force_nohotcount(reset_tracestats)
 
 local function trace_event(event)
   if event == "start" then
-    tstarts = tstarts + 1
+    tstarts = tstarts+1
   elseif event == "stop" then
-    tstops = tstops + 1
+    tstops = tstops+1
   elseif event == "abort" then
-    taborts = taborts + 1 
+    taborts = taborts+1 
   end
 end
 
@@ -112,8 +112,8 @@ end
 function tests.loop_hotcounters()
   teststart()
   local function f1(n) 
-    a = 0 
-    for i=1,n do a = a + 1 end
+    local a = 0 
+    for i=1, n do a = a+1 end
     return a
   end
 
@@ -136,9 +136,9 @@ function tests.multiloop_hotcounters()
   teststart()
   local function f1(n, m) 
     local a = 0 
-    for i=1,n do a = a + 1 end
+    for i=1, n do a = a+1 end
     local b = 0 
-    for i=1,m do b = b + 1 end
+    for i=1, m do b = b+1 end
     return a, b
   end 
 
@@ -201,8 +201,8 @@ function tests.loop_backoff()
   teststart()
   local function f1(n, abort) 
     local a = 0 
-    for i=1,n do 
-      a = a + 1
+    for i=1, n do 
+      a = a+1
       if abort then
         nop()
       end
@@ -230,8 +230,8 @@ function tests.loop_blacklist()
   local function f1(n, abort) 
     local a = 0 
     local prev_abort = taborts
-    for i=1,n do 
-      a = a + 1
+    for i=1, n do 
+      a = a+1
       if abort then
         -- Force an abort from calling a blacklisted function
         nop()
@@ -256,15 +256,15 @@ function tests.loop_blacklist()
     assert(tstarts == i and taborts == i, tstarts .. i)
 
     -- Trigger another trace abort
-    f1(rand_total + 2, true)
+    f1(rand_total+2, true)
     assert(tstarts == i+1 and taborts == i+1, taborts .. (i+1))
 
-    count = count * 2
+    count = count*2
     -- The random offset is added after the current count is doubled from an abort
     if rand_total == 0 then
       rand_total = random_backoff
     else
-      rand_total = rand_total * 2 + random_backoff
+      rand_total = rand_total*2 + random_backoff
     end
   end
   assert(tstarts == maxattemps_loop-1 and taborts == maxattemps_loop-1)
@@ -273,13 +273,12 @@ function tests.loop_blacklist()
   f1(count + rand_total, true)
   assert(tstarts == maxattemps_loop and taborts == maxattemps_loop)
   
-  f1(0xffff * 2)
+  f1(0xffff*2)
   assert(tstarts == maxattemps_loop and taborts == maxattemps_loop)
 end
 
 function tests.func_blacklist()
   teststart()
-  local t = {a = 1, b = 2}
   local function f1(abort)
     if abort then
       local a = 0 
@@ -307,12 +306,12 @@ function tests.func_blacklist()
     calln(f1, rand_total + 2, true)
     
     assert(tstarts == i+1 and taborts == i+1, (taborts .. (i+1)))
-    count = count * 2
+    count = count*2
     -- The random offset is added after the current count is doubled from an abort
     if rand_total == 0 then
       rand_total = random_backoff
     else
-      rand_total = rand_total * 2 + random_backoff
+      rand_total = rand_total*2 + random_backoff
     end
   end
   assert(tstarts == maxattemps_func-1 and taborts == maxattemps_func-1)
