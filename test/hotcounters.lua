@@ -9,9 +9,9 @@ if not pcall(require, "jit.opt") then
   return
 end
 
-local fhot = 56*2
+local fhot = 56 * 2
 local lhot = 56
-local func_penalty = 36*2
+local func_penalty = 36 * 2
 local loop_penalty = 36
 local maxattemps_func = 9
 local maxattemps_loop = 6
@@ -19,8 +19,8 @@ local random_backoff = 16
 
 local function getmaxcount(attempts, penalty)
   local count = penalty + 16
-  for i = 1, attempts-2 do
-    count = (count*2) + 16
+  for i = 1, attempts - 2 do
+    count = (count * 2) + 16
     if count > 0xffff then
       error("Attempt count of "..count.." for attempt "..i.." is larger than the max value of uint16_t")
     end
@@ -35,7 +35,7 @@ print("penaltymaxfunc="..countmax_func, "penaltymaxloop="..countmax_loop)
 jit.opt.start("penaltymaxfunc="..countmax_func, "penaltymaxloop="..countmax_loop)
 
 local function calln(f, n, ...)
-  for i=1, n do
+  for i = 1, n do
     f(...)
   end
 end
@@ -52,10 +52,10 @@ local function nop() end
 jit.off(nop)
 
 local function force_nohotcount()
-  for i = 0, lhot+1 do
+  for i = 0, lhot + 1 do
     calln(nop, 1)
   end
-  for i = 0, lhot+1 do
+  for i = 0, lhot + 1 do
     forcejoff(nop, 1)
   end
 end
@@ -71,11 +71,11 @@ force_nohotcount(reset_tracestats)
 
 local function trace_event(event)
   if event == "start" then
-    tstarts = tstarts+1
+    tstarts = tstarts + 1
   elseif event == "stop" then
-    tstops = tstops+1
+    tstops = tstops + 1
   elseif event == "abort" then
-    taborts = taborts+1 
+    taborts = taborts + 1 
   end
 end
 
@@ -97,7 +97,7 @@ function tests.func_hotcounters()
   f1()
   assert(tstarts == 0, tstarts)
 
-  calln(f1, fhot-2)
+  calln(f1, fhot - 2)
   assert(tstarts == 0, tstarts)
 
   -- Counter should be zero so this call triggers a trace
@@ -105,7 +105,7 @@ function tests.func_hotcounters()
   assert(tstarts == 1 and tstops == 1, tstarts)
 
   -- Call it after its JIT'ed to make sure it won't its not creating another trace
-  calln(f1, fhot*3)
+  calln(f1, fhot * 3)
   assert(tstarts == 1 and tstops == 1, tstarts)
 end
 
@@ -113,7 +113,7 @@ function tests.loop_hotcounters()
   teststart()
   local function f1(n) 
     local a = 0 
-    for i=1, n do a = a+1 end
+    for i = 1, n do a = a + 1 end
     return a
   end
 
@@ -125,7 +125,7 @@ function tests.loop_hotcounters()
   assert(tstarts == 0, tstarts)
 
   -- The loop hot counter should be zero after this call
-  f1(lhot-2)
+  f1(lhot - 2)
   assert(tstarts == 0, tstarts)
   
   f1(3)
@@ -136,9 +136,9 @@ function tests.multiloop_hotcounters()
   teststart()
   local function f1(n, m) 
     local a = 0 
-    for i=1, n do a = a+1 end
+    for i = 1, n do a = a + 1 end
     local b = 0 
-    for i=1, m do b = b+1 end
+    for i = 1, m do b = b + 1 end
     return a, b
   end 
 
@@ -156,7 +156,7 @@ function tests.multiloop_hotcounters()
   assert(tstarts == 1 and tstops == 1, tstarts)
   
   -- Second loop hot counter should be zero after this call
-  f1(-1, lhot-5)
+  f1(-1, lhot - 5)
   assert(tstarts == 1 and tstops == 1, tstarts)
 
   -- Jit the second loop
@@ -164,7 +164,7 @@ function tests.multiloop_hotcounters()
   assert(tstarts == 2 and tstops == 2, tstarts)
 
   -- Both loops should be jit'ed not hot counting anymore
-  f1(lhot*3, lhot*3)
+  f1(lhot * 3, lhot * 3)
   assert(tstarts == 2 and tstops == 2, tstarts)
 end
 
@@ -181,7 +181,7 @@ function tests.func_backoff()
     end
   end
   
-  calln(f1, fhot-1)
+  calln(f1, fhot - 1)
   assert(tstarts == 0, tstarts)
 
   -- Trigger first trace attempt that aborts hitting a inner loop
@@ -193,7 +193,7 @@ function tests.func_backoff()
   assert(tstarts == 1 and taborts == 1, tstarts)
 
   -- Should trigger a second trace attempt that succeeds
-  calln(f1, random_backoff+1)
+  calln(f1, random_backoff + 1)
   assert(tstarts == 2 and tstops == 1 and taborts == 1, tstarts)
 end
 
@@ -201,8 +201,8 @@ function tests.loop_backoff()
   teststart()
   local function f1(n, abort) 
     local a = 0 
-    for i=1, n do 
-      a = a+1
+    for i = 1, n do 
+      a = a + 1
       if abort then
         nop()
       end
@@ -210,14 +210,14 @@ function tests.loop_backoff()
     return a
   end 
 
-  f1(lhot-1)
+  f1(lhot - 1)
   assert(tstarts == 0, tstarts)
   -- Trigger first trace attempt that aborts
   f1(3, true)
   assert(tstarts == 1 and taborts == 1, tstarts)
 
   -- Decrement the hot counter to 0 or near it depending on random back off
-  f1(loop_penalty-3)
+  f1(loop_penalty - 3)
   assert(tstarts == 1 and taborts == 1, tstarts)
 
   -- Trigger the next trace attempt that should succeed
@@ -230,8 +230,8 @@ function tests.loop_blacklist()
   local function f1(n, abort) 
     local a = 0 
     local prev_abort = taborts
-    for i=1, n do 
-      a = a+1
+    for i = 1, n do 
+      a = a + 1
       if abort then
         -- Force an abort from calling a blacklisted function
         nop()
@@ -243,7 +243,7 @@ function tests.loop_blacklist()
     return a
   end
 
-  f1(lhot-1)
+  f1(lhot - 1)
   assert(tstarts == 0)
 
   f1(1, true)
@@ -251,29 +251,29 @@ function tests.loop_blacklist()
   
   local count = loop_penalty
   local rand_total = 0
-  for i=1, maxattemps_loop-2 do
-    f1(count-1)
+  for i=1, maxattemps_loop - 2 do
+    f1(count - 1)
     assert(tstarts == i and taborts == i, tstarts .. i)
 
     -- Trigger another trace abort
-    f1(rand_total+2, true)
-    assert(tstarts == i+1 and taborts == i+1, taborts .. (i+1))
+    f1(rand_total + 2, true)
+    assert(tstarts == i + 1 and taborts == i + 1, taborts .. (i + 1))
 
-    count = count*2
+    count = count * 2
     -- The random offset is added after the current count is doubled from an abort
     if rand_total == 0 then
       rand_total = random_backoff
     else
-      rand_total = rand_total*2 + random_backoff
+      rand_total = rand_total * 2 + random_backoff
     end
   end
-  assert(tstarts == maxattemps_loop-1 and taborts == maxattemps_loop-1)
+  assert(tstarts == maxattemps_loop - 1 and taborts == maxattemps_loop - 1)
   
   -- Last abort should blacklist the function
   f1(count + rand_total, true)
   assert(tstarts == maxattemps_loop and taborts == maxattemps_loop)
   
-  f1(0xffff*2)
+  f1(0xffff * 2)
   assert(tstarts == maxattemps_loop and taborts == maxattemps_loop)
 end
 
@@ -290,7 +290,7 @@ function tests.func_blacklist()
     end
   end
   
-  calln(f1, fhot-1)
+  calln(f1, fhot - 1)
   assert(tstarts == 0)
 
   -- Trigger first abort
@@ -299,22 +299,22 @@ function tests.func_blacklist()
 
   local count = func_penalty
   local rand_total = 0
-  for i=1, maxattemps_func-2 do
-    calln(f1, count-1)
+  for i=1, maxattemps_func - 2 do
+    calln(f1, count - 1)
     assert(tstarts == i and taborts == i, tstarts .. i)
 
-    calln(f1, rand_total + 2, true)
+    calln(f1, rand_total+ 2, true)
     
-    assert(tstarts == i+1 and taborts == i+1, (taborts .. (i+1)))
-    count = count*2
+    assert(tstarts == i + 1 and taborts == i + 1, (taborts .. (i + 1)))
+    count = count * 2
     -- The random offset is added after the current count is doubled from an abort
     if rand_total == 0 then
       rand_total = random_backoff
     else
-      rand_total = rand_total*2 + random_backoff
+      rand_total = rand_total * 2 + random_backoff
     end
   end
-  assert(tstarts == maxattemps_func-1 and taborts == maxattemps_func-1)
+  assert(tstarts == maxattemps_func - 1 and taborts == maxattemps_func - 1)
   
   -- Trigger the last abort which should get the function blacklisted
   calln(f1, count + rand_total, true)
