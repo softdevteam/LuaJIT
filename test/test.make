@@ -55,6 +55,7 @@ all test:: $(TEST_TARGETS)
 %.test: $$* 
 	./builds/$*/luajit testsuite/test/test.lua
 	(cd builds/$* && ./luajit jitlog/test.lua)
+	(cd builds/$* && ./luajit ../../hotcounters.lua)
 
 %.clean:
 	rm -f ./builds/$*/luajit
